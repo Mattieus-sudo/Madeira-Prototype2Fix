@@ -1,32 +1,33 @@
-name: Build iOS Dependency
-
-on:
-  workflow_call:
-    inputs:
-      component:
-        required: true
-        type: string
-      ref:
-        type: string
-        default: ''
-
-jobs:
-  build:
-    runs-on: macos-15
-    timeout-minutes: 360
-    env:
-      HOMEBREW_NO_AUTO_UPDATE: '1'
     steps:
-      - uses: actions/checkout@v4
+      - name: Fetch Target Codebase
+        uses: actions/checkout@v4
         with:
           repository: 'Axoled-Student/Madeira'
           ref: 'claude/dazzling-mccarthy-7x4b15'
           submodules: recursive
+
+      - name: Fetch Local Script Tools
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            scripts/
+          path: local-tools
+
+      - name: Inject Local Scripts
+        run: |
+          if [ -d "local-tools/scripts" ]; then
+            mkdir -p scripts
+            cp -R local-tools/scripts/* ./scripts/
+            rm -rf local-tools
+            chmod +x scripts/*.sh
+          fi
+
       - name: Build dependency component
         run: |
           mkdir -p ci-output
           set -o pipefail
           bash scripts/ci-build-${{ inputs.component }}.sh 2>&1 | tee ci-output/${{ inputs.component }}-build.log
+
       - name: Archive build artifacts
         uses: actions/upload-artifact@v4
         with:
