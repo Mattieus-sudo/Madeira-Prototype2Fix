@@ -122,13 +122,29 @@ jobs:
       - name: Apply late-readback patch
         run: |
           if [ -d "research/dxmt" ]; then
-            git -C research/dxmt apply ../../d3d9_late_readback.patch
+            TARGET_DIR="research/dxmt"
           elif [ -d "dxmt" ]; then
-            git -C dxmt apply ../d3d9_late_readback.patch
+            TARGET_DIR="dxmt"
           else
-            echo "Searching for dxmt directory..."
-            find . -type d -name "dxmt" -exec git -C {} apply "$(pwd)/d3d9_late_readback.patch" \;
+            TARGET_DIR=$(find . -type d -name "dxmt" | head -n 1)
           fi
+          
+          if [ -z "$TARGET_DIR" ]; then
+            echo "ERROR: dxmt directory not found!"
+            exit 1
+          fi
+          
+          echo "Found dxmt at $TARGET_DIR. Testing patch compatibility..."
+          
+          # This is Claude's dry-run check step
+          if git -C "$TARGET_DIR" apply --check "../../d3d9_late_readback.patch" 2>/dev/null || git -C "$TARGET_DIR" apply --check "../d3d9_late_readback.patch" 2>/dev/null; then
+            echo "SUCCESS: Patch is 100% compatible! Applying now..."
+            git -C "$TARGET_DIR" apply --check "../../d3d9_late_readback.patch" && git -C "$TARGET_DIR" apply "../../d3d9_late_readback.patch" || git -C "$TARGET_DIR" apply "../d3d9_late_readback.patch"
+          else
+            echo "ERROR: Patch failed compatibility check. Code has changed since patch creation!"
+            exit 1
+          fi
+
       - name: Build and package
         env:
           MADEIRA_CONFIGURATION: ${{ inputs.configuration || 'Debug' }}
