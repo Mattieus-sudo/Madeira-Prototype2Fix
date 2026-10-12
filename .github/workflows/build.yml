@@ -16,6 +16,22 @@ on:
         type: choice
         options: [Debug, Release]
         default: Debug
+      fex_run:
+        description: 'Run ID to reuse for fex'
+        required: false
+        type: string
+      llvm_run:
+        description: 'Run ID to reuse for llvm'
+        required: false
+        type: string
+      wine_run:
+        description: 'Run ID to reuse for wine'
+        required: false
+        type: string
+      i386_run:
+        description: 'Run ID to reuse for i386'
+        required: false
+        type: string
 
 permissions:
   contents: read
@@ -27,3 +43,7 @@ jobs:
     with:
       ref: ${{ inputs.ref }}
       configuration: ${{ inputs.configuration }}
+      fex_run: ${{ inputs.fex_run }}
+      llvm_run: ${{ inputs.llvm_run }}
+      wine_run: ${{ inputs.wine_run }}
+      i386_run: ${{ inputs.i386_run }}
