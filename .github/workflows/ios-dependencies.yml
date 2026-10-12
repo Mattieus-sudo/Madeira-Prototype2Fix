@@ -19,7 +19,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.ref }}
+          repository: 'Axoled-Student/Madeira'
+          ref: 'claude/dazzling-mccarthy-7x4b15'
+          submodules: recursive
       - name: Build dependency component
         run: |
           mkdir -p ci-output
