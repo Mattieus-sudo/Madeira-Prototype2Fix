@@ -10,10 +10,6 @@ on:
         type: string
         default: ''
 
-permissions:
-  contents: read
-  actions: write
-
 jobs:
   build:
     runs-on: macos-15
