@@ -54,9 +54,6 @@ on:
         description: Run containing ios-i386 (the 32-bit Windows farm) to reuse (blank builds it in this run)
         required: false
         type: string
-permissions:
-  contents: read
-  actions: read
 jobs:
   # Each dependency is built here unless a run to reuse was given.
   fex:
