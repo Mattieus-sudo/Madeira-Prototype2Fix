@@ -1,0 +1,150 @@
+name: Build Madeira iPhone package
+on:
+  workflow_call:
+    inputs:
+      ref:
+        type: string
+        default: ''
+      configuration:
+        type: string
+        default: Debug
+      bundle_vcruntime:
+        type: boolean
+        default: true
+      fex_run:
+        type: string
+        default: ''
+      llvm_run:
+        type: string
+        default: ''
+      wine_run:
+        type: string
+        default: ''
+      i386_run:
+        type: string
+        default: ''
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: Commit or branch to build (blank builds the selected ref)
+        required: false
+        type: string
+      configuration:
+        description: Xcode configuration (docs/BUILDING.md - Release builds have crashed the guest)
+        type: choice
+        options: [Debug, Release]
+        default: Debug
+      bundle_vcruntime:
+        description: Bundle Microsoft's Visual C++ x64 runtime DLLs, taken unmodified from Microsoft's installer
+        type: boolean
+        default: true
+      fex_run:
+        description: Run containing ios-fex to reuse (blank builds FEX in this run)
+        required: false
+        type: string
+      llvm_run:
+        description: Run containing ios-llvm to reuse (blank builds LLVM in this run)
+        required: false
+        type: string
+      wine_run:
+        description: Run containing ios-wine to reuse (blank builds Wine in this run)
+        required: false
+        type: string
+      i386_run:
+        description: Run containing ios-i386 (the 32-bit Windows farm) to reuse (blank builds it in this run)
+        required: false
+        type: string
+permissions:
+  contents: read
+  actions: read
+jobs:
+  # Each dependency is built here unless a run to reuse was given.
+  fex:
+    if: ${{ inputs.fex_run == '' }}
+    uses: ./.github/workflows/ios-dependencies.yml
+    with:
+      component: fex
+      ref: ${{ inputs.ref }}
+  llvm:
+    if: ${{ inputs.llvm_run == '' }}
+    uses: ./.github/workflows/ios-dependencies.yml
+    with:
+      component: llvm
+      ref: ${{ inputs.ref }}
+  wine:
+    if: ${{ inputs.wine_run == '' }}
+    uses: ./.github/workflows/ios-dependencies.yml
+    with:
+      component: wine
+      ref: ${{ inputs.ref }}
+  i386:
+    if: ${{ inputs.i386_run == '' }}
+    uses: ./.github/workflows/ios-dependencies.yml
+    with:
+      component: i386
+      ref: ${{ inputs.ref }}
+  app:
+    needs: [fex, llvm, wine, i386]
+    # A skipped dependency job (reused run) is fine; a failed one is not.
+    if: ${{ !failure() && !cancelled() }}
+    runs-on: macos-15
+    timeout-minutes: 120
+    env:
+      HOMEBREW_NO_AUTO_UPDATE: '1'
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: ios-fex
+          run-id: ${{ inputs.fex_run || github.run_id }}
+          github-token: ${{ github.token }}
+          path: build-inputs/fex
+      - uses: actions/download-artifact@v4
+        with:
+          name: ios-llvm
+          run-id: ${{ inputs.llvm_run || github.run_id }}
+          github-token: ${{ github.token }}
+          path: build-inputs/llvm
+      - uses: actions/download-artifact@v4
+        with:
+          name: ios-wine
+          run-id: ${{ inputs.wine_run || github.run_id }}
+          github-token: ${{ github.token }}
+          path: build-inputs/wine
+      - uses: actions/download-artifact@v4
+        with:
+          name: ios-i386
+          run-id: ${{ inputs.i386_run || github.run_id }}
+          github-token: ${{ github.token }}
+          path: build-inputs/i386
+      - name: Apply late-readback patch
+        run: |
+          if [ -d "research/dxmt" ]; then
+            git -C research/dxmt apply ../../d3d9_late_readback.patch
+          elif [ -d "dxmt" ]; then
+            git -C dxmt apply ../d3d9_late_readback.patch
+          else
+            echo "Searching for dxmt directory..."
+            find . -type d -name "dxmt" -exec git -C {} apply "$(pwd)/d3d9_late_readback.patch" \;
+          fi
+      - name: Build and package
+        env:
+          MADEIRA_CONFIGURATION: ${{ inputs.configuration || 'Debug' }}
+          MADEIRA_BUNDLE_VCRUNTIME: ${{ format('{0}', inputs.bundle_vcruntime) == 'false' && '0' || '1' }}
+          DXMT_D9_LATE_READBACK: '1'
+        run: |
+          mkdir -p ci-output
+          set -o pipefail
+          bash scripts/ci-build-app.sh 2>&1 | tee ci-output/app-build.log
+      - name: Preserve package and diagnostics
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Madeira-iPhone
+          path: |
+            ci-output/
+            build/dxmt-ios/obj/*.err
+          if-no-files-found: error
+          retention-days: 30
