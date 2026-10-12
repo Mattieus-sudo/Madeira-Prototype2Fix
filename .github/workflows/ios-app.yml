@@ -127,6 +127,7 @@ jobs:
         with:
           name: ios-i386
           run-id: ${{ inputs.i386_run || github.run_id }}
+          repository: ${{ inputs.i386_run && 'Axoled-Student/Madeira' || github.repository }}
           github-token: ${{ github.token }}
           path: build-inputs/i386
       - name: Apply late-readback patch
