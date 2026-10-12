@@ -144,7 +144,6 @@ jobs:
             echo "ERROR: Patch failed compatibility check. Code has changed since patch creation!"
             exit 1
           fi
-
       - name: Build and package
         env:
           MADEIRA_CONFIGURATION: ${{ inputs.configuration || 'Debug' }}
