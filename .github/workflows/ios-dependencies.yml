@@ -1,88 +1,41 @@
-name: Build iOS dependencies
+name: Build iOS Dependency
+
 on:
-  workflow_dispatch:
-    inputs:
-      component:
-        description: Dependency to build
-        type: choice
-        options: [all, fex, llvm, wine, i386]
-        default: all
-      ref:
-        description: Commit or branch to build (blank builds the selected ref)
-        required: false
-        type: string
   workflow_call:
     inputs:
       component:
-        description: Dependency to build (all, fex, llvm, wine or i386)
+        required: true
         type: string
-        default: all
       ref:
-        description: Commit or branch to build (blank builds the caller's ref)
         type: string
         default: ''
+
 permissions:
   contents: read
+  actions: write
+
 jobs:
   build:
-    name: Build ${{ matrix.component }} for iPhone
     runs-on: macos-15
-    timeout-minutes: 180
-    strategy:
-      fail-fast: false
-      matrix:
-        component: ${{ fromJSON(inputs.component == 'all' && '["fex","llvm","wine","i386"]' || format('["{0}"]', inputs.component)) }}
+    timeout-minutes: 360
     env:
       HOMEBREW_NO_AUTO_UPDATE: '1'
     steps:
       - uses: actions/checkout@v4
         with:
+          repository: 'Axoled-Student/Madeira'
           ref: ${{ inputs.ref }}
-      # LLVM is by far the longest build and changes only with its own recipe.
-      - name: Restore LLVM build
-        if: matrix.component == 'llvm'
-        id: llvm-cache
-        uses: actions/cache@v4
-        with:
-          path: |
-            ci-output/llvm-ios.tar.gz
-            ci-output/llvm-sha256.txt
-            ci-output/llvm-source-commit.txt
-          key: llvm-ios-${{ runner.os }}-${{ hashFiles('scripts/ci-build-llvm.sh') }}
-      - name: Use cached LLVM build
-        if: steps.llvm-cache.outputs.cache-hit == 'true'
-        run: ls -l ci-output
-      - name: Install build tools
-        if: steps.llvm-cache.outputs.cache-hit != 'true'
-        run: |
-          brew install cmake ninja
-          if [ '${{ matrix.component }}' = wine ]; then
-            brew install bison llvm gnutls pkg-config
-          fi
-          if [ '${{ matrix.component }}' = i386 ]; then
-            brew install bison meson pkg-config
-          fi
-      - name: Build dependency
-        if: steps.llvm-cache.outputs.cache-hit != 'true'
+      - name: Build dependency component
         run: |
           mkdir -p ci-output
           set -o pipefail
-          bash scripts/ci-build-dependency.sh '${{ matrix.component }}' 2>&1 | tee 'ci-output/${{ matrix.component }}.log'
-      - name: Preserve build results
-        if: always()
+          bash scripts/ci-build-${{ inputs.component }}.sh 2>&1 | tee ci-output/${{ inputs.component }}-build.log
+      - name: Archive build artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: ios-${{ matrix.component }}
+          name: ios-${{ inputs.component }}
           path: |
             ci-output/
-            build/gnutls-ios/obj/*.log
-            build/ffmpeg/obj/*.log
-            build/ntdll-unix/obj/*.err
-            build/win32u-unix/obj/*.err
-            build/wineserver/obj/err-*.txt
-            wine/build-macos/config.log
-            wine/build-i386/config.log
-            wine/build-i386/madeira-i386-build.log
-            research/dxmt/build-pe-i386/meson-logs/meson-log.txt
+            build/${{ inputs.component }}-ios/obj/*.err
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 1
