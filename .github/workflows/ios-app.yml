@@ -55,43 +55,56 @@ on:
         required: false
         type: string
 jobs:
-  # Each dependency is built here unless a run to reuse was given.
   fex:
     if: ${{ inputs.fex_run == '' }}
     uses: ./.github/workflows/ios-dependencies.yml
     with:
       component: fex
-      ref: ${{ inputs.ref }}
+      ref: 'claude/dazzling-mccarthy-7x4b15'
   llvm:
     if: ${{ inputs.llvm_run == '' }}
     uses: ./.github/workflows/ios-dependencies.yml
     with:
       component: llvm
-      ref: ${{ inputs.ref }}
+      ref: 'claude/dazzling-mccarthy-7x4b15'
   wine:
     if: ${{ inputs.wine_run == '' }}
     uses: ./.github/workflows/ios-dependencies.yml
     with:
       component: wine
-      ref: ${{ inputs.ref }}
+      ref: 'claude/dazzling-mccarthy-7x4b15'
   i386:
     if: ${{ inputs.i386_run == '' }}
     uses: ./.github/workflows/ios-dependencies.yml
     with:
       component: i386
-      ref: ${{ inputs.ref }}
+      ref: 'claude/dazzling-mccarthy-7x4b15'
   app:
     needs: [fex, llvm, wine, i386]
-    # A skipped dependency job (reused run) is fine; a failed one is not.
     if: ${{ !failure() && !cancelled() }}
     runs-on: macos-15
     timeout-minutes: 120
     env:
       HOMEBREW_NO_AUTO_UPDATE: '1'
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout Root Code assets
+        uses: actions/checkout@v4
         with:
-          ref: ${{ inputs.ref }}
+          repository: 'Axoled-Student/Madeira'
+          ref: 'claude/dazzling-mccarthy-7x4b15'
+          submodules: recursive
+      - name: Fetch local patch file
+        uses: actions/checkout@v4
+        with:
+          sparse-checkout: |
+            d3d9_late_readback.patch
+          path: patch-temp
+      - name: Move Patch File to Root Context
+        run: |
+          if [ -f "patch-temp/d3d9_late_readback.patch" ]; then
+            cp patch-temp/d3d9_late_readback.patch ./d3d9_late_readback.patch
+            rm -rf patch-temp
+          fi
       - uses: actions/download-artifact@v4
         with:
           name: ios-fex
@@ -133,7 +146,6 @@ jobs:
           
           echo "Found dxmt at $TARGET_DIR. Testing patch compatibility..."
           
-          # This is Claude's dry-run check step
           if git -C "$TARGET_DIR" apply --check "../../d3d9_late_readback.patch" 2>/dev/null || git -C "$TARGET_DIR" apply --check "../d3d9_late_readback.patch" 2>/dev/null; then
             echo "SUCCESS: Patch is 100% compatible! Applying now..."
             git -C "$TARGET_DIR" apply --check "../../d3d9_late_readback.patch" && git -C "$TARGET_DIR" apply "../../d3d9_late_readback.patch" || git -C "$TARGET_DIR" apply "../d3d9_late_readback.patch"
