@@ -40,6 +40,12 @@ jobs:
             chmod +x scripts/*.sh
           fi
 
+      - name: Upgrade Build Tools
+        run: |
+          echo "Installing modern build dependencies..."
+          brew install bison
+          echo "/opt/homebrew/opt/bison/bin" >> $GITHUB_PATH
+
       - name: Build dependency component
         run: |
           mkdir -p ci-output
