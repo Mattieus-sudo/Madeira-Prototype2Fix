@@ -1,3 +1,21 @@
+name: Build iOS Dependency
+
+on:
+  workflow_call:
+    inputs:
+      component:
+        required: true
+        type: string
+      ref:
+        type: string
+        default: ''
+
+jobs:
+  build:
+    runs-on: macos-15
+    timeout-minutes: 360
+    env:
+      HOMEBREW_NO_AUTO_UPDATE: '1'
     steps:
       - name: Fetch Target Codebase
         uses: actions/checkout@v4
