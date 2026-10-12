@@ -6,6 +6,11 @@ on:
       - main
   workflow_dispatch:
     inputs:
+      ref:
+        description: 'Commit or branch to build'
+        required: false
+        type: string
+        default: 'claude/dazzling-mccarthy-7x4b15'
       configuration:
         description: 'Xcode configuration'
         type: choice
@@ -20,5 +25,5 @@ jobs:
   build:
     uses: ./.github/workflows/ios-app.yml
     with:
-      ref: 'claude/dazzling-mccarthy-7x4b15'
+      ref: ${{ inputs.ref }}
       configuration: ${{ inputs.configuration }}
