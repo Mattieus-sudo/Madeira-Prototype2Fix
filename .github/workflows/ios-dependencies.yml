@@ -19,7 +19,6 @@ jobs:
     steps:
       - uses: actions/checkout@v4
         with:
-          repository: 'Axoled-Student/Madeira'
           ref: ${{ inputs.ref }}
       - name: Build dependency component
         run: |
