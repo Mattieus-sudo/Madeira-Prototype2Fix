@@ -44,7 +44,13 @@ jobs:
         run: |
           mkdir -p ci-output
           set -o pipefail
-          bash scripts/ci-build-${{ inputs.component }}.sh 2>&1 | tee ci-output/${{ inputs.component }}-build.log
+          
+          # This routes individual components to the correct shell files
+          if [ "${{ inputs.component }}" = "llvm" ]; then
+            bash scripts/ci-build-llvm.sh 2>&1 | tee ci-output/llvm-build.log
+          else
+            bash scripts/ci-build-dependency.sh ${{ inputs.component }} 2>&1 | tee ci-output/${{ inputs.component }}-build.log
+          fi
 
       - name: Archive build artifacts
         uses: actions/upload-artifact@v4
