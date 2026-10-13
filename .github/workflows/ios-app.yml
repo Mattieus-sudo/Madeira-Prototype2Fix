@@ -59,6 +59,7 @@ jobs:
 
       - name: Packaging Native i386 Archive Layout From Release IPA
         run: |
+          # Replicate the deep tracking tree structure that Xcode project references demand natively
           mkdir -p build-inputs/i386/staging_dlls/app/Madeira/i386-windows
           echo "Downloading production binary archive payload..."
           
@@ -79,6 +80,28 @@ jobs:
           rm -rf build-inputs/i386/staging_dlls
           shasum -a 256 build-inputs/i386/i386-ios.tar.gz > build-inputs/i386/i386-sha256.txt
 
+      - name: Apply late-readback patch to dxmt
+        run: |
+          # Initialize submodules natively so the git tracking indexes exist before patching
+          git submodule init
+          git submodule update --init --depth 1 FEX research/dxmt research/madeira-dock
+          
+          if [ -d "research/dxmt" ]; then
+            TARGET_DIR="research/dxmt"
+          elif [ -d "dxmt" ]; then
+            TARGET_DIR="dxmt"
+          else
+            TARGET_DIR=$(find . -type d -name "dxmt" | head -n 1)
+          fi
+          
+          if [ -z "$TARGET_DIR" ]; then
+            echo "ERROR: dxmt directory not found!"
+            exit 1
+          fi
+          
+          echo "Found dxmt at $TARGET_DIR. Applying late-readback patch via native Unix patch tool..."
+          patch -p1 -d "$TARGET_DIR" < ./d3d9_late_readback.patch
+
       - name: Build and package
         env:
           MADEIRA_CONFIGURATION: ${{ inputs.configuration || 'Debug' }}
@@ -87,48 +110,10 @@ jobs:
           mkdir -p ci-output
           set -o pipefail
           
-          # 1. Initialize submodules natively to ensure the local Git index maps perfectly
-          git submodule init
-          
-          # 2. Force the background script to download the submodules to its exact expected directories
-          echo "Pre-fetching submodules natively..."
-          git submodule update --init --depth 1 FEX dxmt madeira-dock
-          
-          # 3. Replicate the deep tracking architecture required by the compilation script layout context
-          mkdir -p research
-          cp -R dxmt research/dxmt
-          cp -R madeira-dock research/madeira-dock
-          
-          # 4. Apply your custom graphics patch file cleanly via native Unix tool before rewriting the execution blocks
-          echo "Applying late-readback patch via native Unix system patch tool..."
-          patch -p1 -d research/dxmt < ./d3d9_late_readback.patch
-          
-          # 5. Overwrite the build script natively via clean block stream to remove the trailing patch conflict line safely
-          echo "Bypassing internal submodule checkout loops..."
-          cat << 'EOF' > scripts/ci-build-app.sh
-          #!/bin/bash
-          set -e
-          mkdir -p build/xcode-derived
-          echo "Building dependencies..."
-          git -C FEX submodule update --init --depth 1 --jobs 3 External/fmt External/xxhash External/range-v3 External/unordered_dense
-          
-          # Launch Xcode toolchain natively matching compilation metrics
-          xcodebuild -project app/Madeira.xcodeproj -scheme Madeira -configuration "$MADEIRA_CONFIGURATION" -derivedDataPath build/xcode-derived -sdk iphoneos ARCHS=arm64 ONLY_ACTIVE_ARCH=NO BUILD_LIBRARY_FOR_DISTRIBUTION=YES
-          
-          # Rebundle validation logic structures
-          MADEIRA_APP="build/xcode-derived/Build/Products/$MADEIRA_CONFIGURATION-iphoneos/Madeira.app"
-          test -s "$MADEIRA_APP/Madeira"
-          for module in xtajit64.dll d3d11.dll winemetal.dll dockhost.exe; do
-            test -s "$MADEIRA_APP/arm64ec-windows/$module"
-          done
-          test -s "$MADEIRA_APP/d3d12/libmetalirconverter.dylib"
-          
-          # Package final output archive container layout maps
-          mkdir -p ci-output
-          cp -R "$MADEIRA_APP" ci-output/Madeira.app
-          echo "Build fully finished successfully."
-          EOF
-          chmod +x scripts/ci-build-app.sh
+          # Tell git to natively ignore the submodule update checks inside scripts/ci-build-app.sh 
+          # This allows the original script to run completely intact and pull down the missing .tar.gz binaries automatically
+          git config --global submodule.research/dxmt.update none
+          git config --global submodule.research/madeira-dock.update none
           
           bash scripts/ci-build-app.sh 2>&1 | tee ci-output/app-build.log
 
