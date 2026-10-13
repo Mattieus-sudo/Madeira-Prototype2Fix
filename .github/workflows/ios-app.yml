@@ -138,8 +138,8 @@ jobs:
           mkdir -p ci-output
           set -o pipefail
           
-          # Satisfy internal build checks by stubbing mock repository flags cleanly at the root layer
-          mkdir -p FEX/.git research/dxmt/.git research/madeira-dock/.git
+          # Force Git globally to skip the conflicting FEX submodule update block entirely during script execution
+          git config submodule.FEX.update none
           
           bash scripts/ci-build-app.sh 2>&1 | tee ci-output/app-build.log
 
