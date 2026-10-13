@@ -80,32 +80,35 @@ jobs:
           mkdir -p build-inputs/i386/staging_dlls/i386-windows
           echo "Downloading production binary archive payload..."
           
-          # Erase the placeholder text inside the quotes below and paste your direct IPA download link
+          # Use your direct link
           curl -L -o release-package.zip "https://github.com/willfaust/Madeira/releases/download/v0.1.3/Madeira-0.1.3.ipa"
           
-          # Unzip and extract the required 32-bit Windows DLL tracking folders
+          # Unzip and extract the contents
           unzip -q release-package.zip -d staging_extracted
           
-          # Map the extracted compiled DLL files into the exact subfolder expected by the internal build system
-          if [ -d "staging_extracted/Payload/Madeira.app/winedlls/x86" ]; then
-            cp -R staging_extracted/Payload/Madeira.app/winedlls/x86/* build-inputs/i386/staging_dlls/i386-windows/
-          elif [ -d "staging_extracted/Payload/*.app/winedlls/x86" ]; then
-            cp -R staging_extracted/Payload/*.app/winedlls/x86/* build-inputs/i386/staging_dlls/i386-windows/
+          # CORRECTED: Search specifically for the 'i386-windows' folder that Madeira uses
+          echo "Locating 32-bit Windows binaries..."
+          TARGET_SOURCE=$(find staging_extracted -type d -name "i386-windows" | head -n 1)
+          
+          if [ -n "$TARGET_SOURCE" ]; then
+            echo "Found binaries at: $TARGET_SOURCE"
+            cp -R "$TARGET_SOURCE"/* build-inputs/i386/staging_dlls/i386-windows/
           else
-            find staging_extracted -type d -name "x86" -exec cp -R {}/* build-inputs/i386/staging_dlls/i386-windows/ \;
+            echo "ERROR: Could not find i386-windows folder in IPA!"
+            ls -R staging_extracted
+            exit 1
           fi
           
-          # Clean up download residue immediately
+          # Clean up
           rm -rf staging_extracted release-package.zip
           
-          # Compress the DLL directory into the exact component archive format the master script expects
+          # Compress exactly as required
           tar -czf build-inputs/i386/i386-ios.tar.gz -C build-inputs/i386/staging_dlls .
           rm -rf build-inputs/i386/staging_dlls
           
-          # Generate the precise matching checksum with the explicit relative directory path matching the master script check root
+          # Generate hash
           shasum -a 256 build-inputs/i386/i386-ios.tar.gz > build-inputs/i386/i386-sha256.txt
-          echo "Archive validation layout fully created: $(cat build-inputs/i386/i386-sha256.txt)"
-
+          echo "Archive validation layout fully created."
 
       - name: Apply late-readback patch to dxmt
         run: |
