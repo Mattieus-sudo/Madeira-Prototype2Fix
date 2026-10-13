@@ -62,7 +62,7 @@ jobs:
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           workflow_conclusion: success
-          run_id: ${{ inputs.fex_run }}
+          run_id: 38279052751
           name: ios-fex
           path: build-inputs/fex
 
@@ -71,15 +71,17 @@ jobs:
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
           workflow_conclusion: success
-          run_id: ${{ inputs.llvm_run }}
+          run_id: 38279052751
           name: ios-llvm
           path: build-inputs/llvm
 
       - name: Download wine Artifact
         uses: dawidd6/action-download-artifact@v3
         with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          workflow_conclusion: success
+          run_id: 38279052751
           name: ios-wine
-          run-id: ${{ inputs.wine_run }}
           path: build-inputs/wine
 
       - name: Packaging Native i386 Archive Layout From Release IPA
