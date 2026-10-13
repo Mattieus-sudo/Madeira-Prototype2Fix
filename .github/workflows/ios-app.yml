@@ -98,14 +98,13 @@ jobs:
           # Clean up download residue immediately
           rm -rf staging_extracted release-package.zip
           
-          # Change directory to ensure checksum and tar entries are relative to build-inputs/i386/
-          cd build-inputs/i386
-          tar -czf i386-ios.tar.gz -C staging_dlls .
-          rm -rf staging_dlls
+          # Compress the DLL directory into the exact component archive format the master script expects
+          tar -czf build-inputs/i386/i386-ios.tar.gz -C build-inputs/i386/staging_dlls .
+          rm -rf build-inputs/i386/staging_dlls
           
-          # Generate checksum from within the exact file directory layout context
-          shasum -a 256 i386-ios.tar.gz > i386-sha256.txt
-          echo "Archive validation layout fully created: $(ls -la)"
+          # Generate the checksum with the explicit relative directory path matching the master script check root
+          shasum -a 256 build-inputs/i386/i386-ios.tar.gz > build-inputs/i386/i386-sha256.txt
+          echo "Archive validation layout fully created: $(cat build-inputs/i386/i386-sha256.txt)"
 
       - name: Apply late-readback patch to dxmt
         run: |
