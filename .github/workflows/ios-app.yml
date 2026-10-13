@@ -116,8 +116,8 @@ jobs:
             echo "ERROR: dxmt directory not found!"
             exit 1
           fi
-          echo "Found dxmt at $TARGET_DIR. Applying late-readback patch..."
-          git -C "$TARGET_DIR" apply "../../d3d9_late_readback.patch" || git -C "$TARGET_DIR" apply "../d3d9_late_readback.patch"
+          echo "Found dxmt at $TARGET_DIR. Applying late-readback patch via native Unix system patch tool..."
+          patch -p1 -d "$TARGET_DIR" < ./d3d9_late_readback.patch
 
       - name: Build and package
         env:
