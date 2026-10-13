@@ -57,36 +57,39 @@ jobs:
           fi
           rm -rf local-context
 
-      - name: Download fex Artifact
-        uses: dawidd6/action-download-artifact@v3
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          workflow_conclusion: success
-          run_id: 38279052751
-          name: ios-fex
-          path: build-inputs/fex
+      - name: Download fex Artifact Natively
+        run: |
+          mkdir -p build-inputs/fex
+          echo "Downloading cached fex module from secure API logs..."
+          curl -L -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            -o fex-archive.zip \
+            "https://github.com{{ github.repository }}/actions/artifacts/12211905389/zip"
+          unzip -q fex-archive.zip -d build-inputs/fex
+          rm fex-archive.zip
 
-      - name: Download llvm Artifact
-        uses: dawidd6/action-download-artifact@v3
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          workflow_conclusion: success
-          run_id: 38279052751
-          name: ios-llvm
-          path: build-inputs/llvm
+      - name: Download llvm Artifact Natively
+        run: |
+          mkdir -p build-inputs/llvm
+          echo "Downloading cached llvm module from secure API logs..."
+          curl -L -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            -o llvm-archive.zip \
+            "https://github.com{{ github.repository }}/actions/artifacts/12211905391/zip"
+          unzip -q llvm-archive.zip -d build-inputs/llvm
+          rm llvm-archive.zip
 
-      - name: Download wine Artifact
-        uses: dawidd6/action-download-artifact@v3
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          workflow_conclusion: success
-          run_id: 38279052751
-          name: ios-wine
-          path: build-inputs/wine
+      - name: Download wine Artifact Natively
+        run: |
+          mkdir -p build-inputs/wine
+          echo "Downloading cached wine module from secure API logs..."
+          curl -L -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            -o wine-archive.zip \
+            "https://github.com{{ github.repository }}/actions/artifacts/12211905393/zip"
+          unzip -q wine-archive.zip -d build-inputs/wine
+          rm wine-archive.zip
 
       - name: Packaging Native i386 Archive Layout From Release IPA
         run: |
-          # Replicate the exact directory tree Xcode demands for post-build validation
+          # Create the exact directory tree Xcode demands for post-build validation
           mkdir -p build-inputs/i386/staging_dlls/app/Madeira/i386-windows
           echo "Downloading production binary archive payload..."
           
