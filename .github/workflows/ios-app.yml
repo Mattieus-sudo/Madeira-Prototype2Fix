@@ -37,6 +37,17 @@ jobs:
           ref: 'v0.1.3'
           submodules: false
 
+      - name: Manually Inject Required Submodule Code Trees
+        run: |
+          echo "Initializing localized submodule contexts..."
+          rm -rf FEX research/dxmt research/madeira-dock
+          
+          # MANUALLY PASTE THE REQUISITE MISSING PATHS IN THESE THREE SLOTS
+          git clone --depth 1 "https://github.com/willfaust/FEX.git" FEX
+          mkdir -p research
+          git clone --depth 1 "https://github.com/willfaust/dxmt.git" research/dxmt
+          git clone --depth 1 "https://github.com/willfaust/madeira-dock.git" research/madeira-dock
+
       - name: Fetch Local Script Tools
         uses: actions/checkout@v4
         with:
@@ -86,7 +97,7 @@ jobs:
           mkdir -p build-inputs/i386/staging_dlls/app/Madeira/i386-windows
           echo "Downloading production binary archive payload..."
           
-          # Erase the placeholder text inside the quotes below and paste your direct IPA download link
+          # MANUALLY PASTE YOUR ENTIRE IPA DIRECT DOWNLOAD LINK INSIDE THESE QUOTES
           curl -L -o release-package.zip "https://github.com/willfaust/Madeira/releases/download/v0.1.3/Madeira-0.1.3.ipa"
           
           # Unzip the IPA
@@ -117,9 +128,21 @@ jobs:
 
       - name: Apply late-readback patch to dxmt
         run: |
-          # Create fake directories temporarily to prevent the patch check step from erroring out
-          mkdir -p research/dxmt
-          cp d3d9_late_readback.patch research/dxmt/d3d9_late_readback.patch
+          if [ -d "research/dxmt" ]; then
+            TARGET_DIR="research/dxmt"
+          elif [ -d "dxmt" ]; then
+            TARGET_DIR="dxmt"
+          else
+            TARGET_DIR=$(find . -type d -name "dxmt" | head -n 1)
+          fi
+          
+          if [ -z "$TARGET_DIR" ]; then
+            echo "ERROR: dxmt directory not found!"
+            exit 1
+          fi
+          
+          echo "Found dxmt at $TARGET_DIR. Applying late-readback patch..."
+          git -C "$TARGET_DIR" apply "../../d3d9_late_readback.patch" || git -C "$TARGET_DIR" apply "../d3d9_late_readback.patch"
 
       - name: Build and package
         env:
@@ -129,29 +152,10 @@ jobs:
           mkdir -p ci-output
           set -o pipefail
           
-          echo "Syncing baseline submodule pointers..."
-          git submodule init
+          # Intercept the script internal update commands so it checks out code via our manual shallow definitions instantly
+          sed -i '' 's/git submodule update/# git submodule update/g' scripts/ci-build-app.sh
+          sed -i '' 's/git -C FEX submodule/# git -C FEX submodule/g' scripts/ci-build-app.sh
           
-          # Force git globally to respect shallow depth constraints across all sub-jobs
-          git config --global submodule.fetchJobs 4
-          git config submodule.FEX.shallow true
-          git config submodule.dxmt.shallow true
-          git config submodule.madeira-dock.shallow true
-          
-          # Pull down the root folders natively at depth 1
-          git submodule update --init --depth 1 FEX dxmt madeira-dock
-          
-          # Replicate the research path layout required by the v0.1.3 tag
-          mkdir -p research
-          cp -R dxmt research/dxmt
-          cp -R madeira-dock research/madeira-dock
-          
-          # Apply your custom graphics patch cleanly
-          cp d3d9_late_readback.patch research/dxmt/d3d9_late_readback.patch
-          echo "Applying late-readback patch..."
-          git -C research/dxmt apply d3d9_late_readback.patch
-          
-          # Execute the master build file cleanly without commenting out its inner lines
           bash scripts/ci-build-app.sh 2>&1 | tee ci-output/app-build.log
 
       - name: Preserve package and diagnostics
