@@ -57,35 +57,9 @@ jobs:
           fi
           rm -rf local-context
 
-      - name: Download fex Artifact
-        uses: dawidd6/action-download-artifact@v3
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          workflow_conclusion: success
-          run_id: 38279052751
-          name: ios-fex
-          path: build-inputs/fex
-
-      - name: Download llvm Artifact
-        uses: dawidd6/action-download-artifact@v3
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          workflow_conclusion: success
-          run_id: 38279052751
-          name: ios-llvm
-          path: build-inputs/llvm
-
-      - name: Download wine Artifact
-        uses: dawidd6/action-download-artifact@v3
-        with:
-          github_token: ${{ secrets.GITHUB_TOKEN }}
-          workflow_conclusion: success
-          run_id: 38279052751
-          name: ios-wine
-          path: build-inputs/wine
-
       - name: Packaging Native i386 Archive Layout From Release IPA
         run: |
+          # Replicate the deep directory layout Xcode looks for
           mkdir -p build-inputs/i386/staging_dlls/app/Madeira/i386-windows
           echo "Downloading production binary archive payload..."
           
@@ -108,11 +82,11 @@ jobs:
 
       - name: Apply late-readback patch to dxmt
         run: |
-          echo "Initializing root submodules..."
+          # Initialize submodules natively so the git tracking indexes exist before patching
           git submodule init
           git submodule update --init --depth 1 FEX dxmt madeira-dock
           
-          echo "Duplicating repositories into research subfolder to satisfy compiler loops..."
+          # Replicate the research path layout required by the v0.1.3 build script
           mkdir -p research
           if [ -d "dxmt" ]; then
             cp -R dxmt research/dxmt
@@ -127,7 +101,7 @@ jobs:
             TARGET_DIR="dxmt"
           fi
           
-          echo "Applying late-readback patch via native Unix system patch tool..."
+          echo "Applying late-readback patch via native Unix patch tool..."
           patch -p1 -d "$TARGET_DIR" < ./d3d9_late_readback.patch
 
       - name: Build and package
