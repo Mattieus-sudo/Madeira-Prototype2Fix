@@ -30,23 +30,13 @@ jobs:
     env:
       HOMEBREW_NO_AUTO_UPDATE: '1'
     steps:
-      - name: Checkout Official Madeira v0.1.3 Base Code
+      - name: Checkout Official Madeira v0.1.3 Codebase
         uses: actions/checkout@v4
         with:
           repository: 'willfaust/Madeira'
           ref: 'v0.1.3'
-          submodules: false
-
-      - name: Manually Inject Required Submodule Code Trees
-        run: |
-          echo "Initializing localized submodule contexts..."
-          rm -rf FEX research/dxmt research/madeira-dock
-          
-          # Manually paste the missing repository tracks inside these targets
-          git clone --depth 1 "https://github.com/willfaust/FEX.git" FEX
-          mkdir -p research
-          git clone --depth 1 "https://github.com/willfaust/dxmt.git" research/dxmt
-          git clone --depth 1 "https://github.com/willfaust/madeira-dock.git" research/madeira-dock
+          submodules: recursive
+          fetch-depth: 1
 
       - name: Fetch Local Script Tools
         uses: actions/checkout@v4
@@ -94,12 +84,12 @@ jobs:
 
       - name: Packaging Native i386 Archive Layout From Release IPA
         run: |
-          # Create the exact directory tree Xcode demands for post-build validation
+          # Replicate the deep directory layout Xcode looks for
           mkdir -p build-inputs/i386/staging_dlls/app/Madeira/i386-windows
           echo "Downloading production binary archive payload..."
           
           # Paste your direct IPA download link inside the quotes below
-          curl -L -o release-package.zip "https://github.com/willfaust/Madeira/releases/download/v0.1.3/Madeira-0.1.3.ipa"
+          curl -L -o release-package.zip "PASTE_YOUR_IPA_DOWNLOAD_LINK_HERE"
           
           # Unzip the IPA
           unzip -q release-package.zip -d staging_extracted
@@ -116,7 +106,7 @@ jobs:
             exit 1
           fi
           
-          # Clean up
+          # Clean up download residue immediately
           rm -rf staging_extracted release-package.zip
           
           # Compress from the staging root to preserve the path structure perfectly
@@ -153,14 +143,10 @@ jobs:
           mkdir -p ci-output
           set -o pipefail
           
-          # Force the global git configuration to use a depth of 1 across ALL internal submodule updates
-          echo "Injecting global shallow compilation rules..."
-          git config --global submodule.fetchJobs 4
-          git config --global submodule.FEX.shallow true
-          git config --global submodule.research/dxmt.shallow true
-          git config --global submodule.research/madeira-dock.shallow true
+          # Intercept the submodule update lines inside the script to keep everything running on our shallow trees
+          sed -i '' 's/git submodule update --init --depth 1 FEX/# git submodule update --init --depth 1 FEX/g' scripts/ci-build-app.sh
+          sed -i '' 's/git -C FEX submodule/# git -C FEX submodule/g' scripts/ci-build-app.sh
           
-          # Execute the master build file completely unmodified
           bash scripts/ci-build-app.sh 2>&1 | tee ci-output/app-build.log
 
       - name: Preserve package and diagnostics
