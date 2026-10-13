@@ -57,9 +57,35 @@ jobs:
           fi
           rm -rf local-context
 
+      - name: Download fex Artifact
+        uses: dawidd6/action-download-artifact@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          workflow_conclusion: success
+          run_id: 38279052751
+          name: ios-fex
+          path: build-inputs/fex
+
+      - name: Download llvm Artifact
+        uses: dawidd6/action-download-artifact@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          workflow_conclusion: success
+          run_id: 38279052751
+          name: ios-llvm
+          path: build-inputs/llvm
+
+      - name: Download wine Artifact
+        uses: dawidd6/action-download-artifact@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          workflow_conclusion: success
+          run_id: 38279052751
+          name: ios-wine
+          path: build-inputs/wine
+
       - name: Packaging Native i386 Archive Layout From Release IPA
         run: |
-          # Replicate the deep tracking tree structure that Xcode project references demand natively
           mkdir -p build-inputs/i386/staging_dlls/app/Madeira/i386-windows
           echo "Downloading production binary archive payload..."
           
@@ -82,24 +108,26 @@ jobs:
 
       - name: Apply late-readback patch to dxmt
         run: |
-          # Initialize submodules natively so the git tracking indexes exist before patching
+          echo "Initializing root submodules..."
           git submodule init
-          git submodule update --init --depth 1 FEX research/dxmt research/madeira-dock
+          git submodule update --init --depth 1 FEX dxmt madeira-dock
+          
+          echo "Duplicating repositories into research subfolder to satisfy compiler loops..."
+          mkdir -p research
+          if [ -d "dxmt" ]; then
+            cp -R dxmt research/dxmt
+          fi
+          if [ -d "madeira-dock" ]; then
+            cp -R madeira-dock research/madeira-dock
+          fi
           
           if [ -d "research/dxmt" ]; then
             TARGET_DIR="research/dxmt"
-          elif [ -d "dxmt" ]; then
-            TARGET_DIR="dxmt"
           else
-            TARGET_DIR=$(find . -type d -name "dxmt" | head -n 1)
+            TARGET_DIR="dxmt"
           fi
           
-          if [ -z "$TARGET_DIR" ]; then
-            echo "ERROR: dxmt directory not found!"
-            exit 1
-          fi
-          
-          echo "Found dxmt at $TARGET_DIR. Applying late-readback patch via native Unix patch tool..."
+          echo "Applying late-readback patch via native Unix system patch tool..."
           patch -p1 -d "$TARGET_DIR" < ./d3d9_late_readback.patch
 
       - name: Build and package
@@ -110,8 +138,7 @@ jobs:
           mkdir -p ci-output
           set -o pipefail
           
-          # Tell git to natively ignore the submodule update checks inside scripts/ci-build-app.sh 
-          # This allows the original script to run completely intact and pull down the missing .tar.gz binaries automatically
+          # Tell git natively to skip the internal script update checks on our patched folders
           git config --global submodule.research/dxmt.update none
           git config --global submodule.research/madeira-dock.update none
           
