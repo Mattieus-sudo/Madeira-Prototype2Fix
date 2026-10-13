@@ -16,20 +16,8 @@ on:
         type: choice
         options: [Debug, Release]
         default: Debug
-      fex_run:
-        description: 'Run ID to reuse for fex'
-        required: false
-        type: string
-      llvm_run:
-        description: 'Run ID to reuse for llvm'
-        required: false
-        type: string
-      wine_run:
-        description: 'Run ID to reuse for wine'
-        required: false
-        type: string
-      i386_run:
-        description: 'Run ID to reuse for i386'
+      run_id_override:
+        description: 'Your Run ID containing completed fex/llvm/wine artifacts (e.g. 12211905389)'
         required: false
         type: string
 
@@ -43,7 +31,7 @@ jobs:
     with:
       ref: ${{ inputs.ref }}
       configuration: ${{ inputs.configuration }}
-      fex_run: ${{ inputs.fex_run }}
-      llvm_run: ${{ inputs.llvm_run }}
-      wine_run: ${{ inputs.wine_run }}
-      i386_run: ${{ inputs.i386_run }}
+      fex_run: ${{ inputs.run_id_override }}
+      llvm_run: ${{ inputs.run_id_override }}
+      wine_run: ${{ inputs.run_id_override }}
+      i386_run: '12196620569' # Axoled-Student's validated standalone run ID database entry
