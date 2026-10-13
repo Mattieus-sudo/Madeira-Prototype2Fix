@@ -102,10 +102,10 @@ jobs:
           tar -czf build-inputs/i386/i386-ios.tar.gz -C build-inputs/i386/staging_dlls .
           rm -rf build-inputs/i386/staging_dlls
           
-          # Generate the precise matching sha256.txt verification line signature formatting
-          cd build-inputs/i386
-          shasum -a 256 i386-ios.tar.gz > i386-sha256.txt
-          echo "Archive validation layout fully created: $(ls -la)"
+          # Generate the precise matching checksum inside the target workspace context natively
+          RAW_HASH=$(shasum -a 256 build-inputs/i386/i386-ios.tar.gz | awk '{print $1}')
+          echo "$RAW_HASH  i386-ios.tar.gz" > build-inputs/i386/i386-sha256.txt
+          echo "Archive validation layout fully created: $(cat build-inputs/i386/i386-sha256.txt)"
 
       - name: Apply late-readback patch to dxmt
         run: |
