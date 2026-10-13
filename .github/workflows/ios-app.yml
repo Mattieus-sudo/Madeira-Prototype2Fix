@@ -77,7 +77,7 @@ jobs:
 
       - name: Packaging Native i386 Archive Layout From Release IPA
         run: |
-          mkdir -p build-inputs/i386/staging_dlls
+          mkdir -p build-inputs/i386/staging_dlls/i386-windows
           echo "Downloading production binary archive payload..."
           
           # Erase the placeholder text inside the quotes below and paste your direct IPA download link
@@ -86,13 +86,13 @@ jobs:
           # Unzip and extract the required 32-bit Windows DLL tracking folders
           unzip -q release-package.zip -d staging_extracted
           
-          # Map the extracted compiled DLL files directly to the internal staging folder structure
+          # Map the extracted compiled DLL files into the exact subfolder expected by the internal build system
           if [ -d "staging_extracted/Payload/Madeira.app/winedlls/x86" ]; then
-            cp -R staging_extracted/Payload/Madeira.app/winedlls/x86/* build-inputs/i386/staging_dlls/
+            cp -R staging_extracted/Payload/Madeira.app/winedlls/x86/* build-inputs/i386/staging_dlls/i386-windows/
           elif [ -d "staging_extracted/Payload/*.app/winedlls/x86" ]; then
-            cp -R staging_extracted/Payload/*.app/winedlls/x86/* build-inputs/i386/staging_dlls/
+            cp -R staging_extracted/Payload/*.app/winedlls/x86/* build-inputs/i386/staging_dlls/i386-windows/
           else
-            find staging_extracted -type d -name "x86" -exec cp -R {}/* build-inputs/i386/staging_dlls/ \;
+            find staging_extracted -type d -name "x86" -exec cp -R {}/* build-inputs/i386/staging_dlls/i386-windows/ \;
           fi
           
           # Clean up download residue immediately
@@ -102,9 +102,10 @@ jobs:
           tar -czf build-inputs/i386/i386-ios.tar.gz -C build-inputs/i386/staging_dlls .
           rm -rf build-inputs/i386/staging_dlls
           
-          # Generate the checksum with the explicit relative directory path matching the master script check root
+          # Generate the precise matching checksum with the explicit relative directory path matching the master script check root
           shasum -a 256 build-inputs/i386/i386-ios.tar.gz > build-inputs/i386/i386-sha256.txt
           echo "Archive validation layout fully created: $(cat build-inputs/i386/i386-sha256.txt)"
+
 
       - name: Apply late-readback patch to dxmt
         run: |
