@@ -57,35 +57,27 @@ jobs:
           fi
           rm -rf local-context
 
-      - name: Download fex Artifact Natively
+      
+      - name: Download Pre-Built Dependencies Natively
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
+          echo "Pulling completed artifacts from Run 38279052751..."
+          
+          # Fetch the pre-compiled fex binaries directly from your history run logs
           mkdir -p build-inputs/fex
-          echo "Downloading cached fex module from secure API logs..."
-          curl -L -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
-            -o fex-archive.zip \
-            "https://github.com{{ github.repository }}/actions/artifacts/12211905389/zip"
-          unzip -q fex-archive.zip -d build-inputs/fex
-          rm fex-archive.zip
-
-      - name: Download llvm Artifact Natively
-        run: |
+          gh artifact download --run-id 38279052751 --name ios-fex --dir build-inputs/fex
+          
+          # Fetch the pre-compiled llvm binaries directly from your history run logs
           mkdir -p build-inputs/llvm
-          echo "Downloading cached llvm module from secure API logs..."
-          curl -L -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
-            -o llvm-archive.zip \
-            "https://github.com{{ github.repository }}/actions/artifacts/12211905391/zip"
-          unzip -q llvm-archive.zip -d build-inputs/llvm
-          rm llvm-archive.zip
-
-      - name: Download wine Artifact Natively
-        run: |
+          gh artifact download --run-id 38279052751 --name ios-llvm --dir build-inputs/llvm
+          
+          # Fetch the pre-compiled wine binaries directly from your history run logs
           mkdir -p build-inputs/wine
-          echo "Downloading cached wine module from secure API logs..."
-          curl -L -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
-            -o wine-archive.zip \
-            "https://github.com{{ github.repository }}/actions/artifacts/12211905393/zip"
-          unzip -q wine-archive.zip -d build-inputs/wine
-          rm wine-archive.zip
+          gh artifact download --run-id 38279052751 --name ios-wine --dir build-inputs/wine
+          
+          echo "Assets verified: $(ls -l build-inputs/)"
+          
 
       - name: Packaging Native i386 Archive Layout From Release IPA
         run: |
