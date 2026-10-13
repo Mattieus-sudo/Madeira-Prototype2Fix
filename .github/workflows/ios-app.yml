@@ -80,8 +80,8 @@ jobs:
           mkdir -p build-inputs/i386/staging_dlls
           echo "Downloading production binary archive payload..."
           
-          # Pull the actual 139MB production package cleanly via direct web request
-          curl -L -o release-package.zip "https://github.com"
+          # Erase the placeholder text inside the quotes below and paste your direct IPA download link
+          curl -L -o release-package.zip "https://github.com/willfaust/Madeira/releases/download/v0.1.3/Madeira-0.1.3.ipa"
           
           # Unzip and extract the required 32-bit Windows DLL tracking folders
           unzip -q release-package.zip -d staging_extracted
