@@ -81,7 +81,7 @@ jobs:
           echo "Downloading real compiled 32-bit binaries from your custom URL..."
           
           # Erase the placeholder text inside the quotes below and paste your direct IPA download link
-          curl -L -o release-package.zip "PASTE_YOUR_IPA_DOWNLOAD_LINK_HERE"
+          curl -L -o release-package.zip "https://github.com/willfaust/Madeira/releases/download/v0.1.3/Madeira-0.1.3.ipa"
           
           # Unzip and extract the required 32-bit Windows DLL tracking folders
           unzip -q release-package.zip -d staging_extracted
