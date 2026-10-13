@@ -1,37 +1,118 @@
-name: Build Madeira iPhone package (branch validation)
+name: Build Madeira IPA (late-readback patch)
 
 on:
-  push:
-    branches:
-      - main
   workflow_dispatch:
     inputs:
       ref:
-        description: 'Commit or branch to build'
+        description: 'Branch, tag or commit of this fork to build'
         required: false
         type: string
-        default: 'v0.1.3'
-      configuration:
-        description: 'Xcode configuration'
-        type: choice
-        options: [Debug, Release]
-        default: Debug
-      run_id_override:
-        description: 'Your Run ID containing completed fex/llvm/wine artifacts (e.g. 38279052751)'
+        default: 'main'
+      apply_patch:
+        description: 'Apply d3d9_late_readback.patch to DXMT'
         required: false
-        type: string
+        type: boolean
+        default: true
 
 permissions:
   contents: read
-  actions: write
 
 jobs:
-  build:
-    uses: ./.github/workflows/ios-app.yml
-    with:
-      ref: ${{ inputs.ref || 'v0.1.3' }}
-      configuration: ${{ inputs.configuration }}
-      fex_run: ${{ inputs.run_id_override }}
-      llvm_run: ${{ inputs.run_id_override }}
-      wine_run: ${{ inputs.run_id_override }}
-      i386_run: ${{ inputs.run_id_override }}
+  ipa:
+    runs-on: xcode-27
+    timeout-minutes: 360
+    env:
+      HOMEBREW_NO_AUTO_UPDATE: '1'
+    steps:
+      - name: Checkout this fork with submodules
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.ref || github.ref }}
+          submodules: recursive
+
+      - name: Show toolchain and checkout layout
+        run: |
+          mkdir -p ci-output
+          xcodebuild -version
+          echo "iphoneos SDK: $(xcrun --sdk iphoneos --show-sdk-version)"
+          git submodule status
+          ls scripts scripts/build 2>/dev/null || true
+
+      - name: Apply late-readback patch to DXMT
+        if: ${{ inputs.apply_patch }}
+        run: |
+          set -euo pipefail
+          PATCH="$GITHUB_WORKSPACE/d3d9_late_readback.patch"
+          [ -f "$PATCH" ] || { echo "::error::d3d9_late_readback.patch missing from repo root"; exit 1; }
+          if [ -d dxmt/src/d3d9 ]; then DXMT=dxmt
+          elif [ -d research/dxmt/src/d3d9 ]; then DXMT=research/dxmt
+          else echo "::error::DXMT checkout not found"; git submodule status; exit 1; fi
+          if patch -p1 -R --dry-run -s -d "$DXMT" < "$PATCH" >/dev/null 2>&1; then
+            echo "Patch already applied"
+          else
+            patch -p1 --dry-run -d "$DXMT" < "$PATCH"
+            patch -p1 -d "$DXMT" < "$PATCH"
+          fi
+          grep -q "late-readback" "$DXMT/src/d3d9/d3d9_device.cpp"
+          git -C "$DXMT" diff --stat
+
+      - name: Install Metal toolchain
+        run: xcodebuild -downloadComponent MetalToolchain || true
+
+      - name: Cache LLVM for iOS
+        uses: actions/cache@v4
+        with:
+          key: llvm-ios-15.0.7-${{ hashFiles('scripts/build/build-llvm-ios.sh') }}
+          path: |
+            toolchains/llvm-ios-build/lib/*.a
+            toolchains/llvm-ios-build/include
+            toolchains/llvm-project/llvm/include
+
+      - name: Build 32-bit (i386) Windows DLLs
+        run: |
+          set -euo pipefail
+          if [ ! -f build/wine-i386/build.sh ]; then echo "No i386 build script, skipping"; exit 0; fi
+          brew install meson ninja bison || true
+          export PATH="$(brew --prefix bison)/bin:$PATH"
+          if [ -f scripts/build/setup-llvm-mingw.sh ]; then bash scripts/build/setup-llvm-mingw.sh; fi
+          if [ -f scripts/build/build-shader-headers.sh ]; then bash scripts/build/build-shader-headers.sh; fi
+          bash build/wine-i386/build.sh 2>&1 | tee ci-output/i386-build.log
+
+      - name: Build IPA
+        run: |
+          set -euo pipefail
+          if [ ! -f scripts/build-ipa.sh ]; then
+            echo "::error::scripts/build-ipa.sh is not in this checkout"
+            ls -la scripts || true
+            exit 1
+          fi
+          chmod +x scripts/build-ipa.sh scripts/build/*.sh 2>/dev/null || true
+          scripts/build-ipa.sh 2>&1 | tee ci-output/build-ipa.log
+
+      - name: Check the patch made it into the build
+        if: ${{ success() && inputs.apply_patch }}
+        run: |
+          rm -rf /tmp/ipa && mkdir /tmp/ipa
+          unzip -q dist/Madeira.ipa -d /tmp/ipa
+          if grep -rlaF "DXMT_D9_LATE_READBACK" /tmp/ipa app/Madeira/libdxmt_combined.a >/dev/null 2>&1; then
+            echo "Late-readback code found in build output"
+          else
+            echo "::warning::DXMT_D9_LATE_READBACK string not found in build output; patch may not be compiled in"
+          fi
+
+      - name: Upload IPA
+        if: success()
+        uses: actions/upload-artifact@v4
+        with:
+          name: Madeira-ipa
+          path: dist/Madeira.ipa
+          if-no-files-found: error
+
+      - name: Upload build logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-logs
+          path: ci-output/
+          if-no-files-found: ignore
+          retention-days: 14
