@@ -94,21 +94,17 @@ jobs:
 
       - name: Apply late-readback patch to dxmt
         run: |
-          # 1. Initialize submodules natively using the exact tracking names registered by git
           echo "Initializing root submodules..."
           git submodule init
           git submodule update --init --depth 1 FEX dxmt madeira-dock
-          
-          # 2. Replicate the research path layout required by the v0.1.3 build script
-          echo "Setting up research path layout..."
+          echo "Moving submodule paths into research layout..."
           mkdir -p research
           if [ -d "dxmt" ] && [ ! -d "research/dxmt" ]; then
-            cp -R dxmt research/dxmt
+            mv dxmt research/dxmt
           fi
           if [ -d "madeira-dock" ] && [ ! -d "research/madeira-dock" ]; then
-            cp -R madeira-dock research/madeira-dock
+            mv madeira-dock research/madeira-dock
           fi
-          
           if [ -d "research/dxmt" ]; then
             TARGET_DIR="research/dxmt"
           elif [ -d "dxmt" ]; then
@@ -116,12 +112,10 @@ jobs:
           else
             TARGET_DIR=$(find . -type d -name "dxmt" | head -n 1)
           fi
-          
           if [ -z "$TARGET_DIR" ]; then
             echo "ERROR: dxmt directory not found!"
             exit 1
           fi
-          
           echo "Found dxmt at $TARGET_DIR. Applying late-readback patch..."
           git -C "$TARGET_DIR" apply "../../d3d9_late_readback.patch" || git -C "$TARGET_DIR" apply "../d3d9_late_readback.patch"
 
