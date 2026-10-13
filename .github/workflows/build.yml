@@ -10,14 +10,14 @@ on:
         description: 'Commit or branch to build'
         required: false
         type: string
-        default: 'claude/dazzling-mccarthy-7x4b15'
+        default: 'v0.1.3'
       configuration:
         description: 'Xcode configuration'
         type: choice
         options: [Debug, Release]
         default: Debug
       run_id_override:
-        description: 'Your Run ID containing completed fex/llvm/wine artifacts (e.g. 12211905389)'
+        description: 'Your Run ID containing completed fex/llvm/wine artifacts (e.g. 38279052751)'
         required: false
         type: string
 
@@ -29,9 +29,9 @@ jobs:
   build:
     uses: ./.github/workflows/ios-app.yml
     with:
-      ref: ${{ inputs.ref }}
+      ref: ${{ inputs.ref || 'v0.1.3' }}
       configuration: ${{ inputs.configuration }}
       fex_run: ${{ inputs.run_id_override }}
       llvm_run: ${{ inputs.run_id_override }}
       wine_run: ${{ inputs.run_id_override }}
-      i386_run: '12196620569' # Axoled-Student's validated standalone run ID database entry
+      i386_run: ${{ inputs.run_id_override }}
