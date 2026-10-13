@@ -57,28 +57,6 @@ jobs:
           fi
           rm -rf local-context
 
-      
-      - name: Download Pre-Built Dependencies Natively
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: |
-          echo "Pulling completed artifacts from Run 38279052751..."
-          
-          # Fetch the pre-compiled fex binaries directly from your history run logs
-          mkdir -p build-inputs/fex
-          gh artifact download --run-id 38279052751 --name ios-fex --dir build-inputs/fex
-          
-          # Fetch the pre-compiled llvm binaries directly from your history run logs
-          mkdir -p build-inputs/llvm
-          gh artifact download --run-id 38279052751 --name ios-llvm --dir build-inputs/llvm
-          
-          # Fetch the pre-compiled wine binaries directly from your history run logs
-          mkdir -p build-inputs/wine
-          gh artifact download --run-id 38279052751 --name ios-wine --dir build-inputs/wine
-          
-          echo "Assets verified: $(ls -l build-inputs/)"
-          
-
       - name: Packaging Native i386 Archive Layout From Release IPA
         run: |
           # Create the exact directory tree Xcode demands for post-build validation
@@ -116,7 +94,7 @@ jobs:
 
       - name: Apply late-readback patch to dxmt
         run: |
-          # Initialize submodules natively using the developer's corrected layout structure
+          # Initialize submodules natively to ensure the code folders exist before patching
           git submodule init
           git submodule update --init --depth 1 FEX research/dxmt research/madeira-dock
           
@@ -145,6 +123,7 @@ jobs:
           set -o pipefail
           
           # Execute the master build file completely unmodified
+          # It automatically downloads spitefulowl's pinned dependency tarballs internally
           bash scripts/ci-build-app.sh 2>&1 | tee ci-output/app-build.log
 
       - name: Preserve package and diagnostics
