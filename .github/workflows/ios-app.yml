@@ -62,6 +62,7 @@ jobs:
         with:
           name: ios-fex
           run-id: ${{ inputs.fex_run }}
+          repository: ${{ github.repository }}
           github-token: ${{ github.token }}
           path: build-inputs/fex
 
@@ -70,6 +71,7 @@ jobs:
         with:
           name: ios-llvm
           run-id: ${{ inputs.llvm_run }}
+          repository: ${{ github.repository }}
           github-token: ${{ github.token }}
           path: build-inputs/llvm
 
@@ -78,6 +80,7 @@ jobs:
         with:
           name: ios-wine
           run-id: ${{ inputs.wine_run }}
+          repository: ${{ github.repository }}
           github-token: ${{ github.token }}
           path: build-inputs/wine
 
