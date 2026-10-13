@@ -94,7 +94,7 @@ jobs:
 
       - name: Apply late-readback patch to dxmt
         run: |
-          # Initialize submodules natively to ensure the code folders exist before patching
+          # Initialize submodules natively using the developer's exact v0.1.3 path layout mappings
           git submodule init
           git submodule update --init --depth 1 FEX research/dxmt research/madeira-dock
           
