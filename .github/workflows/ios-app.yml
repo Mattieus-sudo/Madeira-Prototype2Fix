@@ -156,6 +156,5 @@ jobs:
           name: Madeira-iPhone
           path: |
             ci-output/
-            build/dxmt-ios/obj/*.err
-          if-no-files-found: error
+          if-no-files-found: ignore
           retention-days: 14
