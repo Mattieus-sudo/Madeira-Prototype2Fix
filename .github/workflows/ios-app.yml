@@ -129,29 +129,29 @@ jobs:
           mkdir -p ci-output
           set -o pipefail
           
-          echo "Syncing submodule folders into expected locations..."
+          echo "Syncing baseline submodule pointers..."
           git submodule init
+          
+          # Force git globally to respect shallow depth constraints across all sub-jobs
+          git config --global submodule.fetchJobs 4
           git config submodule.FEX.shallow true
           git config submodule.dxmt.shallow true
           git config submodule.madeira-dock.shallow true
           
-          # Pull the code down natively
+          # Pull down the root folders natively at depth 1
           git submodule update --init --depth 1 FEX dxmt madeira-dock
           
-          # Replicate the deep 'research/' directory layout the v0.1.3 script demands
+          # Replicate the research path layout required by the v0.1.3 tag
           mkdir -p research
           cp -R dxmt research/dxmt
           cp -R madeira-dock research/madeira-dock
           
-          # Apply your graphics patch file exactly where it belongs
+          # Apply your custom graphics patch cleanly
           cp d3d9_late_readback.patch research/dxmt/d3d9_late_readback.patch
           echo "Applying late-readback patch..."
           git -C research/dxmt apply d3d9_late_readback.patch
           
-          # Strip the double submodule fetch lines so the script doesn't wipe our folder work
-          sed -i '' 's/git submodule update/# git submodule update/g' scripts/ci-build-app.sh
-          sed -i '' 's/git -C FEX submodule/# git -C FEX submodule/g' scripts/ci-build-app.sh
-          
+          # Execute the master build file cleanly without commenting out its inner lines
           bash scripts/ci-build-app.sh 2>&1 | tee ci-output/app-build.log
 
       - name: Preserve package and diagnostics
