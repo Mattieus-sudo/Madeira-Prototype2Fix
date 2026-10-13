@@ -99,11 +99,11 @@ jobs:
           rm -rf staging_extracted release-package.zip
           
           # Compress the DLL directory into the exact component archive format the master script expects
-          cd build-inputs/i386
-          tar -czf i386-ios.tar.gz -C staging_dlls .
-          rm -rf staging_dlls
+          tar -czf build-inputs/i386/i386-ios.tar.gz -C build-inputs/i386/staging_dlls .
+          rm -rf build-inputs/i386/staging_dlls
           
-          # Generate the precise matching sha256.txt verification line signature mapping
+          # Generate the precise matching sha256.txt verification line signature formatting
+          cd build-inputs/i386
           shasum -a 256 i386-ios.tar.gz > i386-sha256.txt
           echo "Archive validation layout fully created: $(ls -la)"
 
