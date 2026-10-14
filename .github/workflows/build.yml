@@ -1,0 +1,294 @@
+name: Build Madeira 0.1.3 IPA (late-readback patch)
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'willfaust/Madeira tag, branch or commit to build'
+        required: false
+        type: string
+        default: 'v0.1.3'
+      apply_patch:
+        description: 'Apply d3d9_late_readback.patch to DXMT'
+        required: false
+        type: boolean
+        default: true
+      quick_test:
+        description: 'QUICK TEST (~6 min): patch + JIT pairing library + Madeira Dock only, then stop'
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  ipa:
+    runs-on: xcode-27
+    timeout-minutes: 360
+    env:
+      HOMEBREW_NO_AUTO_UPDATE: '1'
+    steps:
+      - name: Checkout Madeira source
+        uses: actions/checkout@v4
+        with:
+          repository: willfaust/Madeira
+          ref: ${{ inputs.ref || 'v0.1.3' }}
+          submodules: recursive
+
+      - name: Fetch your patch from this fork
+        uses: actions/checkout@v4
+        with:
+          path: fork-files
+          sparse-checkout: d3d9_late_readback.patch
+          sparse-checkout-cone-mode: false
+
+      - name: Fetch CI build scripts (PR 58, pinned commit)
+        uses: actions/checkout@v4
+        with:
+          repository: willfaust/Madeira
+          ref: 196d0e739c1851abd9e64003f96be56f9ceb9df2
+          path: pr58
+          submodules: false
+          sparse-checkout: |
+            /scripts/
+            /build/wineserver/bootstrap.sh
+          sparse-checkout-cone-mode: false
+
+      - name: Install the PR 58 scripts
+        run: |
+          set -euo pipefail
+          mkdir -p scripts build/wineserver ci-output
+          cp -R pr58/scripts/. scripts/
+          cp pr58/build/wineserver/bootstrap.sh build/wineserver/bootstrap.sh
+          rm -rf pr58
+          chmod +x scripts/*.sh scripts/build/*.sh build/wineserver/bootstrap.sh
+
+      - name: Show toolchain and checkout layout
+        run: |
+          xcodebuild -version
+          echo "iphoneos SDK: $(xcrun --sdk iphoneos --show-sdk-version)"
+          git submodule status
+          ls scripts scripts/build
+          echo "--- pieces the PR 58 scripts do not build ---"
+          ls -la build/rppairing-ios || echo "::warning::build/rppairing-ios missing"
+          ls -la build/madeira-dock || echo "::warning::build/madeira-dock missing"
+          ls madeira-dock research/madeira-dock 2>/dev/null | head -20 || true
+          ls -d app/MadeiraJITHelper || echo "::warning::app/MadeiraJITHelper missing"
+
+      - name: Apply late-readback patch to DXMT
+        if: ${{ inputs.apply_patch }}
+        run: |
+          set -euo pipefail
+          PATCH="$GITHUB_WORKSPACE/fork-files/d3d9_late_readback.patch"
+          [ -f "$PATCH" ] || { echo "::error::d3d9_late_readback.patch missing from your fork's root"; exit 1; }
+          if [ -d dxmt/src/d3d9 ]; then DXMT=dxmt
+          elif [ -d research/dxmt/src/d3d9 ]; then DXMT=research/dxmt
+          else echo "::error::DXMT checkout not found"; git submodule status; exit 1; fi
+          SRC="$DXMT/src/d3d9/d3d9_device.cpp"
+          echo "DXMT at $(git -C "$DXMT" rev-parse --short HEAD)"
+          echo "d3d9_device.cpp blob: $(git -C "$DXMT" rev-parse --short HEAD:src/d3d9/d3d9_device.cpp) (patch was made against 2515624)"
+          if grep -q "DXMT_D9_LATE_READBACK" "$SRC"; then
+            echo "Patch text already present in source"
+          else
+            git -C "$DXMT" apply --check -v "$PATCH"
+            git -C "$DXMT" apply -v "$PATCH"
+          fi
+          grep -q "DXMT_D9_LATE_READBACK" "$SRC"
+          git -C "$DXMT" diff --stat
+
+      - name: Bridge old research/ paths to the current submodule paths
+        run: |
+          set -euo pipefail
+          mkdir -p research
+          if [ -d dxmt/src ] && [ ! -e research/dxmt ]; then
+            ln -s "$GITHUB_WORKSPACE/dxmt" research/dxmt
+          fi
+          if [ -d madeira-dock ] && [ ! -e research/madeira-dock ]; then
+            ln -s "$GITHUB_WORKSPACE/madeira-dock" research/madeira-dock
+          fi
+          ls -la research/ | head -20
+          test -f research/dxmt/src/airconv/shaders/air_tessellation.metal
+
+      # ---------------------------------------------------------------
+      # In-app JIT (0.1.3, PR #127): Rust pairing library the app links.
+      # ---------------------------------------------------------------
+      - name: Build rppairing library (Rust, iOS) for in-app JIT
+        run: |
+          set -euo pipefail
+          export PATH="$HOME/.cargo/bin:$PATH"
+          if ! command -v rustup >/dev/null 2>&1; then
+            echo "rustup not found, installing"
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain stable
+            export PATH="$HOME/.cargo/bin:$PATH"
+          fi
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          rustup target add aarch64-apple-ios
+          rustc --version
+          cargo --version
+          test -f build/rppairing-ios/build.sh || { echo "::error::build/rppairing-ios/build.sh not found"; exit 1; }
+          bash build/rppairing-ios/build.sh 2>&1 | tee ci-output/rppairing-build.log
+          LIB=app/Madeira/libmadeira_rppairing.a
+          [ -s "$LIB" ] || { echo "::error::$LIB was not produced"; exit 1; }
+          ls -la "$LIB"
+          lipo -info "$LIB"
+          nm -g "$LIB" > ci-output/rppairing-symbols.txt 2>/dev/null || true
+          grep -q "madeira_rppairing_accept" ci-output/rppairing-symbols.txt \
+            || { echo "::error::madeira_rppairing_accept symbol not found in $LIB"; exit 1; }
+          echo "OK: libmadeira_rppairing.a built and exports madeira_rppairing_accept"
+
+      # ---------------------------------------------------------------
+      # Madeira Dock (Steam client host). The app only shows Dock / Steam
+      # setup when dockhost.exe was built and bundled. The PR 58 scripts
+      # never build it. It is a Windows x86-64 exe cross-compiled with
+      # llvm-mingw, so set that toolchain up first.
+      # ---------------------------------------------------------------
+      - name: Prepare llvm-mingw
+        run: |
+          set -euo pipefail
+          brew install meson ninja bison || true
+          export PATH="$(brew --prefix bison)/bin:$PATH"
+          bash scripts/build/setup-llvm-mingw.sh
+
+      - name: Build Madeira Dock host (dockhost.exe)
+        run: |
+          set -euo pipefail
+          export PATH="$(brew --prefix bison)/bin:$PATH"
+          ls -la madeira-dock | head -30 || true
+          if [ -f build/madeira-dock/build.sh ]; then
+            echo "Using build/madeira-dock/build.sh"
+            bash build/madeira-dock/build.sh 2>&1 | tee ci-output/dock-build.log
+          elif [ -f madeira-dock/tools/build.sh ]; then
+            echo "Using madeira-dock/tools/build.sh --stage"
+            bash madeira-dock/tools/build.sh --stage 2>&1 | tee ci-output/dock-build.log
+          else
+            echo "::error::No Madeira Dock build script found"; exit 1
+          fi
+          echo "--- dockhost.exe locations ---"
+          find . -name "dockhost.exe" -not -path "./.git/*" -not -path "./*/.git/*" | tee ci-output/dockhost-locations.txt
+          [ -s ci-output/dockhost-locations.txt ] \
+            || { echo "::error::dockhost.exe was not produced"; exit 1; }
+          find app -name "dockhost.exe" | grep -q . \
+            || echo "::warning::dockhost.exe exists but NOT under app/. It may not get bundled into the IPA."
+          find app -name "dock-notices.txt" | head -3 || true
+
+      - name: Inspect the in-app JIT Xcode pieces (informational)
+        continue-on-error: true
+        run: |
+          grep -n "StikJIT\|MadeiraJITHelper\|dockhost" app/Madeira.xcodeproj/project.pbxproj | head -40 || true
+
+      - name: Quick test finished
+        if: ${{ inputs.quick_test }}
+        run: echo "Quick test passed (patch + JIT library + Dock). Re-run with quick_test unticked for the full IPA."
+
+      # ---------------------- full build below ----------------------
+
+      - name: Install Metal toolchain
+        if: ${{ !inputs.quick_test }}
+        run: xcodebuild -downloadComponent MetalToolchain || true
+
+      - name: Restore LLVM for iOS cache
+        if: ${{ !inputs.quick_test }}
+        id: llvm-cache
+        uses: actions/cache/restore@v4
+        with:
+          key: llvm-ios-15.0.7-${{ hashFiles('scripts/build/build-llvm-ios.sh') }}
+          path: |
+            toolchains/llvm-ios-build/lib/*.a
+            toolchains/llvm-ios-build/include
+            toolchains/llvm-project/llvm/include
+
+      - name: Build shader headers
+        if: ${{ !inputs.quick_test }}
+        run: |
+          set -euo pipefail
+          export PATH="$(brew --prefix bison)/bin:$PATH"
+          bash scripts/build/build-shader-headers.sh
+
+      - name: Compute i386 cache key
+        if: ${{ !inputs.quick_test }}
+        id: revs
+        run: echo "wine=$(git -C wine rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Restore 32-bit (i386) DLL cache
+        if: ${{ !inputs.quick_test }}
+        id: i386-cache
+        uses: actions/cache/restore@v4
+        with:
+          key: i386-dlls-${{ steps.revs.outputs.wine }}-${{ hashFiles('build/wine-i386/build.sh') }}
+          path: app/Madeira/i386-windows
+
+      - name: Build 32-bit (i386) Windows DLLs
+        if: ${{ !inputs.quick_test && steps.i386-cache.outputs.cache-hit != 'true' }}
+        id: i386
+        run: |
+          set -euo pipefail
+          if [ ! -f build/wine-i386/build.sh ]; then echo "No i386 build script, skipping"; exit 0; fi
+          export PATH="$(brew --prefix bison)/bin:$PATH"
+          bash build/wine-i386/build.sh 2>&1 | tee ci-output/i386-build.log
+
+      - name: Save i386 DLL cache
+        if: ${{ always() && !inputs.quick_test && steps.i386.outcome == 'success' && steps.i386-cache.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@v4
+        with:
+          key: i386-dlls-${{ steps.revs.outputs.wine }}-${{ hashFiles('build/wine-i386/build.sh') }}
+          path: app/Madeira/i386-windows
+
+      - name: Build IPA
+        if: ${{ !inputs.quick_test }}
+        run: |
+          set -euo pipefail
+          scripts/build-ipa.sh 2>&1 | tee ci-output/build-ipa.log
+
+      # Save LLVM (about 20 min to rebuild) even if a LATER step fails.
+      - name: Save LLVM for iOS cache
+        if: ${{ always() && !inputs.quick_test && steps.llvm-cache.outputs.cache-hit != 'true' && hashFiles('app/Madeira/libdxmt_combined.a') != '' }}
+        uses: actions/cache/save@v4
+        with:
+          key: llvm-ios-15.0.7-${{ hashFiles('scripts/build/build-llvm-ios.sh') }}
+          path: |
+            toolchains/llvm-ios-build/lib/*.a
+            toolchains/llvm-ios-build/include
+            toolchains/llvm-project/llvm/include
+
+      - name: Check what made it into the IPA
+        if: ${{ success() && !inputs.quick_test }}
+        run: |
+          rm -rf /tmp/ipa && mkdir /tmp/ipa
+          unzip -q dist/Madeira.ipa -d /tmp/ipa
+          if [ "${{ inputs.apply_patch }}" = "true" ]; then
+            if grep -rlaF "DXMT_D9_LATE_READBACK" /tmp/ipa app/Madeira/libdxmt_combined.a >/dev/null 2>&1; then
+              echo "Late-readback patch code found in build output"
+            else
+              echo "::warning::DXMT_D9_LATE_READBACK not found in build output; patch may not be compiled in"
+            fi
+          fi
+          if find /tmp/ipa -name "*.appex" | grep -q .; then
+            echo "JIT helper app extension present in IPA"
+          else
+            echo "::warning::No .appex found in IPA; in-app JIT helper may be missing"
+          fi
+          if find /tmp/ipa -name "dockhost.exe" | grep -q .; then
+            echo "dockhost.exe present in IPA"
+          else
+            echo "::warning::dockhost.exe NOT in IPA; Madeira Dock and Steam setup will be hidden"
+          fi
+
+      - name: Upload IPA
+        if: ${{ success() && !inputs.quick_test }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: Madeira-0.1.3-ipa
+          path: dist/Madeira.ipa
+          if-no-files-found: error
+
+      - name: Upload build logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-logs
+          path: ci-output/
+          if-no-files-found: ignore
+          retention-days: 14
