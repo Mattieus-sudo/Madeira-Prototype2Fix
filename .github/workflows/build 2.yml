@@ -1,0 +1,263 @@
+name: Build Madeira 0.1.3 IPA (late-readback patch)
+
+on:
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: 'willfaust/Madeira tag, branch or commit to build'
+        required: false
+        type: string
+        default: 'v0.1.3'
+      apply_patch:
+        description: 'Apply d3d9_late_readback.patch to DXMT'
+        required: false
+        type: boolean
+        default: true
+      rppairing_only:
+        description: 'QUICK TEST (~4 min): checkout + patch + build the Rust JIT-pairing library only, then stop'
+        required: false
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  ipa:
+    runs-on: xcode-27
+    timeout-minutes: 360
+    env:
+      HOMEBREW_NO_AUTO_UPDATE: '1'
+    steps:
+      - name: Checkout Madeira source
+        uses: actions/checkout@v4
+        with:
+          repository: willfaust/Madeira
+          ref: ${{ inputs.ref || 'v0.1.3' }}
+          submodules: recursive
+
+      - name: Fetch your patch from this fork
+        uses: actions/checkout@v4
+        with:
+          path: fork-files
+          sparse-checkout: d3d9_late_readback.patch
+          sparse-checkout-cone-mode: false
+
+      - name: Fetch CI build scripts (PR 58, pinned commit)
+        uses: actions/checkout@v4
+        with:
+          repository: willfaust/Madeira
+          ref: 196d0e739c1851abd9e64003f96be56f9ceb9df2
+          path: pr58
+          submodules: false
+          sparse-checkout: |
+            /scripts/
+            /build/wineserver/bootstrap.sh
+          sparse-checkout-cone-mode: false
+
+      - name: Install the PR 58 scripts
+        run: |
+          set -euo pipefail
+          mkdir -p scripts build/wineserver ci-output
+          cp -R pr58/scripts/. scripts/
+          cp pr58/build/wineserver/bootstrap.sh build/wineserver/bootstrap.sh
+          rm -rf pr58
+          chmod +x scripts/*.sh scripts/build/*.sh build/wineserver/bootstrap.sh
+
+      - name: Show toolchain and checkout layout
+        run: |
+          xcodebuild -version
+          echo "iphoneos SDK: $(xcrun --sdk iphoneos --show-sdk-version)"
+          git submodule status
+          ls scripts scripts/build
+          echo "--- in-app JIT pieces present in this checkout? ---"
+          ls -la build/rppairing-ios || echo "::warning::build/rppairing-ios missing (is ref really >= 0.1.3?)"
+          ls -d app/MadeiraJITHelper || echo "::warning::app/MadeiraJITHelper missing"
+
+      - name: Apply late-readback patch to DXMT
+        if: ${{ inputs.apply_patch }}
+        run: |
+          set -euo pipefail
+          PATCH="$GITHUB_WORKSPACE/fork-files/d3d9_late_readback.patch"
+          [ -f "$PATCH" ] || { echo "::error::d3d9_late_readback.patch missing from your fork's root"; exit 1; }
+          if [ -d dxmt/src/d3d9 ]; then DXMT=dxmt
+          elif [ -d research/dxmt/src/d3d9 ]; then DXMT=research/dxmt
+          else echo "::error::DXMT checkout not found"; git submodule status; exit 1; fi
+          SRC="$DXMT/src/d3d9/d3d9_device.cpp"
+          echo "DXMT at $(git -C "$DXMT" rev-parse --short HEAD)"
+          echo "d3d9_device.cpp blob: $(git -C "$DXMT" rev-parse --short HEAD:src/d3d9/d3d9_device.cpp) (patch was made against 2515624)"
+          if grep -q "DXMT_D9_LATE_READBACK" "$SRC"; then
+            echo "Patch text already present in source"
+          else
+            git -C "$DXMT" apply --check -v "$PATCH"
+            git -C "$DXMT" apply -v "$PATCH"
+          fi
+          grep -q "DXMT_D9_LATE_READBACK" "$SRC"
+          git -C "$DXMT" diff --stat
+
+      - name: Bridge research/dxmt to dxmt (PR 58 scripts expect the old path)
+        run: |
+          set -euo pipefail
+          if [ -d dxmt/src ] && [ ! -e research/dxmt ]; then
+            mkdir -p research
+            ln -s "$GITHUB_WORKSPACE/dxmt" research/dxmt
+          fi
+          ls -la research/ | head -20
+          test -f research/dxmt/src/airconv/shaders/air_tessellation.metal
+
+      # ---------------------------------------------------------------
+      # In-app JIT (added in Madeira 0.1.3, PR #127). The PR 58 scripts do
+      # NOT build this, but the Xcode project links -lmadeira_rppairing.
+      # Build it early so any problem shows up in minutes, not after 40.
+      # ---------------------------------------------------------------
+      - name: Build rppairing library (Rust, iOS) for in-app JIT
+        run: |
+          set -euo pipefail
+          export PATH="$HOME/.cargo/bin:$PATH"
+          if ! command -v rustup >/dev/null 2>&1; then
+            echo "rustup not found, installing"
+            curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y --profile minimal --default-toolchain stable
+            export PATH="$HOME/.cargo/bin:$PATH"
+          fi
+          echo "$HOME/.cargo/bin" >> "$GITHUB_PATH"
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          rustup target add aarch64-apple-ios
+          rustc --version
+          cargo --version
+          test -f build/rppairing-ios/build.sh || { echo "::error::build/rppairing-ios/build.sh not found"; exit 1; }
+          bash build/rppairing-ios/build.sh 2>&1 | tee ci-output/rppairing-build.log
+          LIB=app/Madeira/libmadeira_rppairing.a
+          [ -s "$LIB" ] || { echo "::error::$LIB was not produced"; exit 1; }
+          ls -la "$LIB"
+          lipo -info "$LIB"
+          nm -g "$LIB" > ci-output/rppairing-symbols.txt 2>/dev/null || true
+          grep -q "madeira_rppairing_accept" ci-output/rppairing-symbols.txt \
+            || { echo "::error::madeira_rppairing_accept symbol not found in $LIB"; exit 1; }
+          echo "OK: libmadeira_rppairing.a built and exports madeira_rppairing_accept"
+
+      - name: Inspect the in-app JIT Xcode pieces (informational)
+        continue-on-error: true
+        run: |
+          echo "--- StikJIT / helper references in the Xcode project ---"
+          grep -n "StikJIT\|MadeiraJITHelper" app/Madeira.xcodeproj/project.pbxproj | head -40 || true
+          echo "--- StikJIT files present in the checkout ---"
+          find . -iname "*stikjit*" -not -path "./.git/*" -not -path "./*/.git/*" 2>/dev/null | head -20 || true
+
+      - name: Quick test finished
+        if: ${{ inputs.rppairing_only }}
+        run: echo "Quick test passed. Re-run with rppairing_only unchecked for the full IPA build."
+
+      # ---------------------- full build below ----------------------
+
+      - name: Install Metal toolchain
+        if: ${{ !inputs.rppairing_only }}
+        run: xcodebuild -downloadComponent MetalToolchain || true
+
+      - name: Restore LLVM for iOS cache
+        if: ${{ !inputs.rppairing_only }}
+        id: llvm-cache
+        uses: actions/cache/restore@v4
+        with:
+          key: llvm-ios-15.0.7-${{ hashFiles('scripts/build/build-llvm-ios.sh') }}
+          path: |
+            toolchains/llvm-ios-build/lib/*.a
+            toolchains/llvm-ios-build/include
+            toolchains/llvm-project/llvm/include
+
+      - name: Prepare llvm-mingw and shader headers
+        if: ${{ !inputs.rppairing_only }}
+        run: |
+          set -euo pipefail
+          if [ ! -f build/wine-i386/build.sh ]; then echo "No i386 build script, skipping"; exit 0; fi
+          brew install meson ninja bison || true
+          export PATH="$(brew --prefix bison)/bin:$PATH"
+          bash scripts/build/setup-llvm-mingw.sh
+          bash scripts/build/build-shader-headers.sh
+
+      - name: Compute i386 cache key
+        if: ${{ !inputs.rppairing_only }}
+        id: revs
+        run: echo "wine=$(git -C wine rev-parse HEAD)" >> "$GITHUB_OUTPUT"
+
+      - name: Restore 32-bit (i386) DLL cache
+        if: ${{ !inputs.rppairing_only }}
+        id: i386-cache
+        uses: actions/cache/restore@v4
+        with:
+          key: i386-dlls-${{ steps.revs.outputs.wine }}-${{ hashFiles('build/wine-i386/build.sh') }}
+          path: app/Madeira/i386-windows
+
+      - name: Build 32-bit (i386) Windows DLLs
+        if: ${{ !inputs.rppairing_only && steps.i386-cache.outputs.cache-hit != 'true' }}
+        id: i386
+        run: |
+          set -euo pipefail
+          if [ ! -f build/wine-i386/build.sh ]; then echo "No i386 build script, skipping"; exit 0; fi
+          export PATH="$(brew --prefix bison)/bin:$PATH"
+          bash build/wine-i386/build.sh 2>&1 | tee ci-output/i386-build.log
+
+      - name: Save i386 DLL cache
+        if: ${{ always() && !inputs.rppairing_only && steps.i386.outcome == 'success' && steps.i386-cache.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@v4
+        with:
+          key: i386-dlls-${{ steps.revs.outputs.wine }}-${{ hashFiles('build/wine-i386/build.sh') }}
+          path: app/Madeira/i386-windows
+
+      - name: Build IPA
+        if: ${{ !inputs.rppairing_only }}
+        run: |
+          set -euo pipefail
+          scripts/build-ipa.sh 2>&1 | tee ci-output/build-ipa.log
+
+      # Save LLVM (about 20 min to rebuild) even if a LATER step fails.
+      # libdxmt_combined.a is built after LLVM, so its presence proves LLVM finished.
+      - name: Save LLVM for iOS cache
+        if: ${{ always() && !inputs.rppairing_only && steps.llvm-cache.outputs.cache-hit != 'true' && hashFiles('app/Madeira/libdxmt_combined.a') != '' }}
+        uses: actions/cache/save@v4
+        with:
+          key: llvm-ios-15.0.7-${{ hashFiles('scripts/build/build-llvm-ios.sh') }}
+          path: |
+            toolchains/llvm-ios-build/lib/*.a
+            toolchains/llvm-ios-build/include
+            toolchains/llvm-project/llvm/include
+
+      - name: Check the patch made it into the build
+        if: ${{ success() && !inputs.rppairing_only && inputs.apply_patch }}
+        run: |
+          rm -rf /tmp/ipa && mkdir /tmp/ipa
+          unzip -q dist/Madeira.ipa -d /tmp/ipa
+          if grep -rlaF "DXMT_D9_LATE_READBACK" /tmp/ipa app/Madeira/libdxmt_combined.a >/dev/null 2>&1; then
+            echo "Late-readback code found in build output"
+          else
+            echo "::warning::DXMT_D9_LATE_READBACK not found in build output; patch may not be compiled in"
+          fi
+
+      - name: Check the JIT helper extension is in the IPA
+        if: ${{ success() && !inputs.rppairing_only }}
+        run: |
+          if find /tmp/ipa -name "MadeiraJITHelper.appex" 2>/dev/null | grep -q .; then
+            echo "MadeiraJITHelper.appex present in IPA"
+          else
+            rm -rf /tmp/ipa && mkdir /tmp/ipa && unzip -q dist/Madeira.ipa -d /tmp/ipa
+            find /tmp/ipa -name "*.appex" | grep -q . \
+              && echo "App extension present in IPA" \
+              || echo "::warning::No .appex found in IPA; in-app JIT helper may be missing"
+          fi
+
+      - name: Upload IPA
+        if: ${{ success() && !inputs.rppairing_only }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: Madeira-0.1.3-ipa
+          path: dist/Madeira.ipa
+          if-no-files-found: error
+
+      - name: Upload build logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: build-logs
+          path: ci-output/
+          if-no-files-found: ignore
+          retention-days: 14
