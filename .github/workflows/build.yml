@@ -40,7 +40,9 @@ jobs:
         uses: actions/checkout@v4
         with:
           path: fork-files
-          sparse-checkout: d3d9_late_readback.patch
+          sparse-checkout: |
+            d3d9_late_readback.patch
+            madeira-hint-relocate.patch
           sparse-checkout-cone-mode: false
 
       - name: Fetch CI build scripts (PR 58, pinned commit)
@@ -96,6 +98,22 @@ jobs:
           fi
           grep -q "DXMT_D9_LATE_READBACK" "$SRC"
           git -C "$DXMT" diff --stat
+
+      - name: Apply hint-relocate patch to Madeira ntdll (virtual_ios.c)
+        run: |
+          set -euo pipefail
+          PATCH="$GITHUB_WORKSPACE/fork-files/madeira-hint-relocate.patch"
+          [ -f "$PATCH" ] || { echo "::error::madeira-hint-relocate.patch missing from your fork's root"; exit 1; }
+          SRC=build/ntdll-unix/virtual_ios.c
+          [ -f "$SRC" ] || { echo "::error::$SRC not found in this checkout"; exit 1; }
+          if grep -q "va-hint-relocate" "$SRC"; then
+            echo "Patch text already present in source"
+          else
+            git apply --check -v "$PATCH" || { echo "::error::patch does not apply to this ref; try building ref=main"; exit 1; }
+            git apply -v "$PATCH"
+          fi
+          grep -q "va-hint-relocate" "$SRC"
+          git diff --stat -- "$SRC"
 
       - name: Bridge old research/ paths to the current submodule paths
         run: |
