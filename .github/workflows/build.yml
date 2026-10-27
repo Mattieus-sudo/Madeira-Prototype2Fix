@@ -7,7 +7,7 @@ on:
         description: 'willfaust/Madeira tag, branch or commit to build'
         required: false
         type: string
-        default: 'v0.1.3'
+        default: 'main'
       apply_patch:
         description: 'Apply d3d9_late_readback.patch to DXMT'
         required: false
@@ -33,14 +33,16 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: willfaust/Madeira
-          ref: ${{ inputs.ref || 'v0.1.3' }}
+          ref: ${{ inputs.ref || 'main' }}
           submodules: recursive
 
       - name: Fetch your patch from this fork
         uses: actions/checkout@v4
         with:
           path: fork-files
-          sparse-checkout: d3d9_late_readback.patch
+          sparse-checkout: |
+            d3d9_late_readback.patch
+            madeira-hint-relocate.patch
           sparse-checkout-cone-mode: false
 
       - name: Fetch CI build scripts (PR 58, pinned commit)
@@ -60,9 +62,48 @@ jobs:
           set -euo pipefail
           mkdir -p scripts build/wineserver ci-output
           cp -R pr58/scripts/. scripts/
-          cp pr58/build/wineserver/bootstrap.sh build/wineserver/bootstrap.sh
+          # Keep main's own wineserver bootstrap if it has one; PR 58's copy is
+          # older. Only fill in when main has none.
+          if [ -f build/wineserver/bootstrap.sh ]; then
+            echo "using main's build/wineserver/bootstrap.sh"
+          else
+            cp pr58/build/wineserver/bootstrap.sh build/wineserver/bootstrap.sh
+            echo "main has no bootstrap.sh; using PR 58's copy"
+          fi
           rm -rf pr58
           chmod +x scripts/*.sh scripts/build/*.sh build/wineserver/bootstrap.sh
+
+          # PR 58's scripts/build/fex-ios.patch targets FEX 26859e1 (its Core.cpp
+          # and Arm64.cpp guard fixes). Current main pins a newer FEX that already
+          # carries those fixes (FEX PR #32), so the old patch no longer applies
+          # and Build IPA stops at "patch does not apply". Swap it for a patch that
+          # applies cleanly and changes nothing, so the script's own git apply step
+          # still succeeds without touching FEX sources.
+          if [ -f scripts/build/fex-ios.patch ]; then
+            cp scripts/build/fex-ios.patch ci-output/fex-ios.patch.original
+            cat > scripts/build/fex-ios.patch <<'NOOP'
+          diff --git a/.madeira-ci-noop b/.madeira-ci-noop
+          new file mode 100644
+          index 0000000..d95f3ad
+          --- /dev/null
+          +++ b/.madeira-ci-noop
+          @@ -0,0 +1 @@
+          +content
+          NOOP
+          fi
+
+      - name: Save scripts and pins into the build-logs artifact (for review)
+        continue-on-error: true
+        run: |
+          mkdir -p ci-output/scripts-snapshot
+          cp -R scripts ci-output/scripts-snapshot/ || true
+          git submodule status > ci-output/submodules.txt 2>&1 || true
+          echo "Madeira commit: $(git rev-parse HEAD)" > ci-output/pins.txt
+          for m in FEX wine dxmt madeira-dock; do
+            [ -d "$m" ] && echo "$m: $(git -C "$m" rev-parse HEAD)" >> ci-output/pins.txt
+          done
+          ls -R scripts > ci-output/scripts-listing.txt 2>&1 || true
+          cat ci-output/pins.txt
 
       - name: Show toolchain and checkout layout
         run: |
@@ -75,6 +116,12 @@ jobs:
           ls -la build/madeira-dock || echo "::warning::build/madeira-dock missing"
           ls madeira-dock research/madeira-dock 2>/dev/null | head -20 || true
           ls -d app/MadeiraJITHelper || echo "::warning::app/MadeiraJITHelper missing"
+
+      - name: Show how the FEX stage applies its patch (diagnostic)
+        continue-on-error: true
+        run: |
+          echo "FEX submodule: $(git -C FEX rev-parse --short HEAD)"
+          grep -n "patch\|apply" scripts/build/build-fex-ios.sh || true
 
       - name: Apply late-readback patch to DXMT
         if: ${{ inputs.apply_patch }}
@@ -97,6 +144,22 @@ jobs:
           grep -q "DXMT_D9_LATE_READBACK" "$SRC"
           git -C "$DXMT" diff --stat
 
+      - name: Apply hint-relocate patch to Madeira ntdll (virtual_ios.c)
+        run: |
+          set -euo pipefail
+          PATCH="$GITHUB_WORKSPACE/fork-files/madeira-hint-relocate.patch"
+          [ -f "$PATCH" ] || { echo "::error::madeira-hint-relocate.patch missing from your fork's root"; exit 1; }
+          SRC=build/ntdll-unix/virtual_ios.c
+          [ -f "$SRC" ] || { echo "::error::$SRC not found in this checkout"; exit 1; }
+          if grep -q "va-hint-relocate" "$SRC"; then
+            echo "Patch text already present in source"
+          else
+            git apply --check -v "$PATCH" || { echo "::error::patch does not apply to this ref; try building ref=main"; exit 1; }
+            git apply -v "$PATCH"
+          fi
+          grep -q "va-hint-relocate" "$SRC"
+          git diff --stat -- "$SRC"
+
       - name: Bridge old research/ paths to the current submodule paths
         run: |
           set -euo pipefail
@@ -109,6 +172,46 @@ jobs:
           fi
           ls -la research/ | head -20
           test -f research/dxmt/src/airconv/shaders/air_tessellation.metal
+
+      - name: Preflight - every script and file the build chain calls must exist
+        run: |
+          set -uo pipefail
+          missing=0
+          for f in \
+            tools/check-prefix-template.sh \
+            app/Madeira/prefix-template.tar.gz \
+            app/Madeira.xcodeproj/project.pbxproj \
+            app/Madeira/Madeira.entitlements \
+            build/gnutls-ios/build.sh \
+            build/ffmpeg/build.sh \
+            build/wineserver/bootstrap.sh \
+            build/wineserver/build.sh \
+            build/ntdll-unix/build.sh \
+            build/win32u-unix/build.sh \
+            build/freetype-ios/build.sh \
+            build/dxmt-ios/build.sh \
+            build/stage-licenses.sh \
+            build/wine-i386/build.sh \
+            scripts/build-ipa.sh \
+            scripts/build/build-fex-ios.sh \
+            scripts/build/fex-ios.patch \
+            wine/configure \
+            FEX/CMakeLists.txt \
+            dxmt/src/airconv/shaders/air_tessellation.metal ; do
+            if [ -e "$f" ]; then echo "ok       $f"; else echo "MISSING  $f"; missing=1; fi
+          done | tee ci-output/preflight-paths.txt
+          if grep -q '^MISSING' ci-output/preflight-paths.txt; then
+            echo "::error::A file the build chain needs is missing on this ref. See MISSING lines above."
+            exit 1
+          fi
+          echo "research/freetype present? $( [ -d research/freetype ] && echo yes || echo no )" | tee -a ci-output/preflight-paths.txt
+
+      - name: Build FEX for iOS now (fails fast; the full build reuses it)
+        run: |
+          set -euo pipefail
+          brew install cmake ninja || true
+          ROOT="$GITHUB_WORKSPACE" bash scripts/build/build-fex-ios.sh 2>&1 | tee ci-output/fex-build.log
+          ls -la FEX/build-ios/FEXCore/Source/libFEXCore.a FEX/build-ios/FEXCore/Source/libJemallocLibs.a
 
       # ---------------------------------------------------------------
       # In-app JIT (0.1.3, PR #127): Rust pairing library the app links.
