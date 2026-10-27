@@ -62,7 +62,14 @@ jobs:
           set -euo pipefail
           mkdir -p scripts build/wineserver ci-output
           cp -R pr58/scripts/. scripts/
-          cp pr58/build/wineserver/bootstrap.sh build/wineserver/bootstrap.sh
+          # Keep main's own wineserver bootstrap if it has one; PR 58's copy is
+          # older. Only fill in when main has none.
+          if [ -f build/wineserver/bootstrap.sh ]; then
+            echo "using main's build/wineserver/bootstrap.sh"
+          else
+            cp pr58/build/wineserver/bootstrap.sh build/wineserver/bootstrap.sh
+            echo "main has no bootstrap.sh; using PR 58's copy"
+          fi
           rm -rf pr58
           chmod +x scripts/*.sh scripts/build/*.sh build/wineserver/bootstrap.sh
 
@@ -165,6 +172,46 @@ jobs:
           fi
           ls -la research/ | head -20
           test -f research/dxmt/src/airconv/shaders/air_tessellation.metal
+
+      - name: Preflight - every script and file the build chain calls must exist
+        run: |
+          set -uo pipefail
+          missing=0
+          for f in \
+            tools/check-prefix-template.sh \
+            app/Madeira/prefix-template.tar.gz \
+            app/Madeira.xcodeproj/project.pbxproj \
+            app/Madeira/Madeira.entitlements \
+            build/gnutls-ios/build.sh \
+            build/ffmpeg/build.sh \
+            build/wineserver/bootstrap.sh \
+            build/wineserver/build.sh \
+            build/ntdll-unix/build.sh \
+            build/win32u-unix/build.sh \
+            build/freetype-ios/build.sh \
+            build/dxmt-ios/build.sh \
+            build/stage-licenses.sh \
+            build/wine-i386/build.sh \
+            scripts/build-ipa.sh \
+            scripts/build/build-fex-ios.sh \
+            scripts/build/fex-ios.patch \
+            wine/configure \
+            FEX/CMakeLists.txt \
+            dxmt/src/airconv/shaders/air_tessellation.metal ; do
+            if [ -e "$f" ]; then echo "ok       $f"; else echo "MISSING  $f"; missing=1; fi
+          done | tee ci-output/preflight-paths.txt
+          if grep -q '^MISSING' ci-output/preflight-paths.txt; then
+            echo "::error::A file the build chain needs is missing on this ref. See MISSING lines above."
+            exit 1
+          fi
+          echo "research/freetype present? $( [ -d research/freetype ] && echo yes || echo no )" | tee -a ci-output/preflight-paths.txt
+
+      - name: Build FEX for iOS now (fails fast; the full build reuses it)
+        run: |
+          set -euo pipefail
+          brew install cmake ninja || true
+          ROOT="$GITHUB_WORKSPACE" bash scripts/build/build-fex-ios.sh 2>&1 | tee ci-output/fex-build.log
+          ls -la FEX/build-ios/FEXCore/Source/libFEXCore.a FEX/build-ios/FEXCore/Source/libJemallocLibs.a
 
       # ---------------------------------------------------------------
       # In-app JIT (0.1.3, PR #127): Rust pairing library the app links.
