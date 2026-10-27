@@ -7,7 +7,7 @@ on:
         description: 'willfaust/Madeira tag, branch or commit to build'
         required: false
         type: string
-        default: 'v0.1.3'
+        default: 'main'
       apply_patch:
         description: 'Apply d3d9_late_readback.patch to DXMT'
         required: false
@@ -33,7 +33,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           repository: willfaust/Madeira
-          ref: ${{ inputs.ref || 'v0.1.3' }}
+          ref: ${{ inputs.ref || 'main' }}
           submodules: recursive
 
       - name: Fetch your patch from this fork
@@ -66,6 +66,38 @@ jobs:
           rm -rf pr58
           chmod +x scripts/*.sh scripts/build/*.sh build/wineserver/bootstrap.sh
 
+          # PR 58's scripts/build/fex-ios.patch targets FEX 26859e1 (its Core.cpp
+          # and Arm64.cpp guard fixes). Current main pins a newer FEX that already
+          # carries those fixes (FEX PR #32), so the old patch no longer applies
+          # and Build IPA stops at "patch does not apply". Swap it for a patch that
+          # applies cleanly and changes nothing, so the script's own git apply step
+          # still succeeds without touching FEX sources.
+          if [ -f scripts/build/fex-ios.patch ]; then
+            cp scripts/build/fex-ios.patch ci-output/fex-ios.patch.original
+            cat > scripts/build/fex-ios.patch <<'NOOP'
+          diff --git a/.madeira-ci-noop b/.madeira-ci-noop
+          new file mode 100644
+          index 0000000..d95f3ad
+          --- /dev/null
+          +++ b/.madeira-ci-noop
+          @@ -0,0 +1 @@
+          +content
+          NOOP
+          fi
+
+      - name: Save scripts and pins into the build-logs artifact (for review)
+        continue-on-error: true
+        run: |
+          mkdir -p ci-output/scripts-snapshot
+          cp -R scripts ci-output/scripts-snapshot/ || true
+          git submodule status > ci-output/submodules.txt 2>&1 || true
+          echo "Madeira commit: $(git rev-parse HEAD)" > ci-output/pins.txt
+          for m in FEX wine dxmt madeira-dock; do
+            [ -d "$m" ] && echo "$m: $(git -C "$m" rev-parse HEAD)" >> ci-output/pins.txt
+          done
+          ls -R scripts > ci-output/scripts-listing.txt 2>&1 || true
+          cat ci-output/pins.txt
+
       - name: Show toolchain and checkout layout
         run: |
           xcodebuild -version
@@ -77,6 +109,12 @@ jobs:
           ls -la build/madeira-dock || echo "::warning::build/madeira-dock missing"
           ls madeira-dock research/madeira-dock 2>/dev/null | head -20 || true
           ls -d app/MadeiraJITHelper || echo "::warning::app/MadeiraJITHelper missing"
+
+      - name: Show how the FEX stage applies its patch (diagnostic)
+        continue-on-error: true
+        run: |
+          echo "FEX submodule: $(git -C FEX rev-parse --short HEAD)"
+          grep -n "patch\|apply" scripts/build/build-fex-ios.sh || true
 
       - name: Apply late-readback patch to DXMT
         if: ${{ inputs.apply_patch }}
